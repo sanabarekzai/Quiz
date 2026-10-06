@@ -39,6 +39,13 @@ const formatDuration = (value) => {
   return minutes ? `${minutes}m ${String(remainder).padStart(2, "0")}s` : `${remainder}s`;
 };
 
+const difficultyLevels = ["easy", "medium", "hard"];
+
+function getAvailableDifficulties(quiz) {
+  if (!quiz?.availableDifficulties) return difficultyLevels;
+  return difficultyLevels.filter((level) => quiz.availableDifficulties[level]);
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     ...options,
@@ -79,6 +86,12 @@ function shell(content, screenName = "setup") {
 }
 
 function renderSetup() {
+  const selectedQuiz = state.quizzes.find((quiz) => quiz.category === state.selectedCategory);
+  const availableDifficulties = getAvailableDifficulties(selectedQuiz);
+  const selectedDifficulty = availableDifficulties.includes(state.difficulty)
+    ? state.difficulty
+    : availableDifficulties[0] || "easy";
+
   app.innerHTML = shell(`
     <main class="setup-layout reveal">
       <section class="intro-panel" aria-labelledby="intro-title">
@@ -134,13 +147,15 @@ function renderSetup() {
               </div>
             </fieldset>
             <fieldset class="form-section">
-              <legend class="section-heading">Pick your pace <span class="section-hint">You can do this</span></legend>
+              <legend class="section-heading">Pick your pace <span class="section-hint" data-role="difficulty-hint">${availableDifficulties.length === 1 ? `${availableDifficulties[0][0].toUpperCase()}${availableDifficulties[0].slice(1)} only` : "You can do this"}</span></legend>
               <div class="difficulty-options">
-                ${["easy", "medium", "hard"].map((level) => `
-                  <label class="difficulty-choice">
-                    <input type="radio" name="difficulty" value="${level}" ${state.difficulty === level ? "checked" : ""}>
+                ${difficultyLevels.map((level) => {
+                  const available = availableDifficulties.includes(level);
+                  return `<label class="difficulty-choice" data-available="${available}">
+                    <input type="radio" name="difficulty" value="${level}" ${selectedDifficulty === level ? "checked" : ""} ${available ? "" : "disabled"}>
                     <span class="difficulty-label">${level[0].toUpperCase()}${level.slice(1)}</span>
-                  </label>`).join("")}
+                  </label>`;
+                }).join("")}
               </div>
             </fieldset>
             <div class="form-section">
@@ -468,6 +483,25 @@ app.addEventListener("change", (event) => {
       const radio = choice.querySelector('input[name="category"]');
       choice.dataset.selected = String(radio?.checked || false);
     });
+    const selectedQuiz = state.quizzes.find((quiz) => quiz.category === state.selectedCategory);
+    const availableDifficulties = getAvailableDifficulties(selectedQuiz);
+    if (!availableDifficulties.includes(state.difficulty)) {
+      state.difficulty = availableDifficulties[0] || "easy";
+    }
+    app.querySelectorAll(".difficulty-choice").forEach((choice) => {
+      const radio = choice.querySelector('input[name="difficulty"]');
+      if (!radio) return;
+      const available = availableDifficulties.includes(radio.value);
+      choice.dataset.available = String(available);
+      radio.disabled = !available;
+      radio.checked = radio.value === state.difficulty;
+    });
+    const difficultyHint = app.querySelector('[data-role="difficulty-hint"]');
+    if (difficultyHint) {
+      difficultyHint.textContent = availableDifficulties.length === 1
+        ? `${availableDifficulties[0][0].toUpperCase()}${availableDifficulties[0].slice(1)} only`
+        : "You can do this";
+    }
     const button = app.querySelector(".start-button");
     if (button) button.disabled = state.starting || !state.selectedCategory;
   } else if (target.name === "difficulty") {

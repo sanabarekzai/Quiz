@@ -57,12 +57,20 @@ app.get("/api/health", async (req, res, next) => {
 app.get("/api/quizzes", async (req, res, next) => {
   try {
     const result = await pool.query(`
-      SELECT c.id AS category, c.title, c.description, COUNT(q.id)::int AS "questionCount"
+      SELECT c.id AS category, c.title, c.description, COUNT(q.id)::int AS "questionCount",
+             jsonb_build_object(
+               'easy', COUNT(q.id) FILTER (WHERE q.difficulty = 'easy') >= $1,
+               'medium', COUNT(q.id) FILTER (WHERE q.difficulty = 'medium') >= $1,
+               'hard', COUNT(q.id) FILTER (WHERE q.difficulty = 'hard') >= $1
+             ) AS "availableDifficulties"
       FROM quiz_categories c
-      LEFT JOIN quiz_questions q ON (c.id = 'mixed' OR c.id = q.category_id)
+      LEFT JOIN quiz_questions q ON (
+        (c.id = 'mixed' AND q.category_id <> 'club_carnival')
+        OR c.id = q.category_id
+      )
       GROUP BY c.id, c.title, c.description, c.sort_order
       ORDER BY c.sort_order, c.title
-    `);
+    `, [QUESTIONS_PER_GAME]);
     res.json({ quizzes: result.rows });
   } catch (error) {
     next(error);
@@ -91,7 +99,7 @@ app.post("/api/sessions", async (req, res, next) => {
     const questionQuery = category === "mixed"
       ? `SELECT id, category_id, difficulty, prompt, options
          FROM quiz_questions
-         WHERE difficulty = $1
+         WHERE difficulty = $1 AND category_id <> 'club_carnival'
          ORDER BY random()
          LIMIT $2`
       : `SELECT id, category_id, difficulty, prompt, options

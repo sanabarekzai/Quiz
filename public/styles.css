@@ -339,6 +339,8 @@ button { color: inherit; }
 
 .difficulty-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
 .difficulty-choice { position: relative; }
+.difficulty-choice[data-available="false"] { opacity: .48; }
+.difficulty-choice[data-available="false"] .difficulty-label { cursor: not-allowed; }
 .difficulty-choice input { position: absolute; opacity: 0; pointer-events: none; }
 .difficulty-label {
   min-height: 43px;
