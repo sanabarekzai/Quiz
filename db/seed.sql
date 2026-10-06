@@ -2,7 +2,8 @@ INSERT INTO quiz_categories (id, title, description, sort_order) VALUES
   ('mixed', 'Quick mix', 'A little science, geography, and history in one round.', 0),
   ('science', 'Science', 'Discoveries, nature, and the universe.', 1),
   ('geography', 'Geography', 'Places, landscapes, and our changing planet.', 2),
-  ('history', 'History', 'People and moments that shaped the world.', 3)
+  ('history', 'History', 'People and moments that shaped the world.', 3),
+  ('club_carnival', 'Club Carnival', 'Join the fun! Club Carnival is on October 16 at lunch. Help us make it amazing!', 4)
 ON CONFLICT (id) DO UPDATE SET
   title = EXCLUDED.title,
   description = EXCLUDED.description,
@@ -24,7 +25,6 @@ INSERT INTO quiz_questions (category_id, difficulty, prompt, options, correct_in
   ('science', 'hard', 'What is the atomic number of uranium?', '["92", "88", "94", "82"]'::jsonb, 0, 'Uranium has 92 protons in its nucleus.'),
   ('science', 'hard', 'Approximately how fast does light travel through a vacuum?', '["30,000 km/s", "300,000 km/s", "3,000 km/s", "3,000,000 km/s"]'::jsonb, 1, 'Light travels at about 299,792 kilometers per second in a vacuum.'),
   ('science', 'hard', 'Which particle is associated with the mechanism that gives many fundamental particles mass?', '["Photon", "Neutrino", "Higgs boson", "Gluon"]'::jsonb, 2, 'The Higgs boson is associated with the Higgs field and the origin of mass for many particles.'),
-
   ('geography', 'easy', 'What is the capital of Japan?', '["Osaka", "Kyoto", "Sapporo", "Tokyo"]'::jsonb, 3, 'Tokyo is the capital and most populous city of Japan.'),
   ('geography', 'easy', 'The Nile River flows through which continent?', '["Africa", "Asia", "South America", "Europe"]'::jsonb, 0, 'The Nile flows north through northeastern Africa.'),
   ('geography', 'easy', 'What is the largest ocean on Earth?', '["Atlantic", "Pacific", "Indian", "Arctic"]'::jsonb, 1, 'The Pacific Ocean is the largest and deepest ocean.'),
@@ -40,7 +40,6 @@ INSERT INTO quiz_questions (category_id, difficulty, prompt, options, correct_in
   ('geography', 'hard', 'Which strait separates Alaska from Russia?', '["Davis Strait", "Gibraltar Strait", "Drake Passage", "Bering Strait"]'::jsonb, 3, 'The Bering Strait separates the Chukchi Peninsula from Alaska.'),
   ('geography', 'hard', 'What is the largest inland body of water on Earth?', '["Caspian Sea", "Lake Superior", "Lake Victoria", "Aral Sea"]'::jsonb, 0, 'The Caspian Sea is the world largest enclosed inland body of water.'),
   ('geography', 'hard', 'Mount Kilimanjaro is in which country?', '["Kenya", "Tanzania", "Uganda", "Ethiopia"]'::jsonb, 1, 'Kilimanjaro is in northeastern Tanzania, near the Kenyan border.'),
-
   ('history', 'easy', 'Who was the first president of the United States?', '["Thomas Jefferson", "John Adams", "George Washington", "James Madison"]'::jsonb, 2, 'George Washington served as the first US president from 1789 to 1797.'),
   ('history', 'easy', 'The pyramids at Giza were built by which ancient civilization?', '["Roman", "Greek", "Mayan", "Egyptian"]'::jsonb, 3, 'The Giza pyramids were built in ancient Egypt during the Old Kingdom.'),
   ('history', 'easy', 'In what year did World War II end?', '["1945", "1939", "1942", "1950"]'::jsonb, 0, 'World War II ended in 1945, following the surrender of Germany and Japan.'),
@@ -55,5 +54,9 @@ INSERT INTO quiz_questions (category_id, difficulty, prompt, options, correct_in
   ('history', 'hard', 'In what year did the Haitian Revolution begin?', '["1804", "1791", "1776", "1815"]'::jsonb, 1, 'The Haitian Revolution began in 1791 and led to independence in 1804.'),
   ('history', 'hard', 'Who is most closely associated with introducing movable-type printing in Europe?', '["Leonardo da Vinci", "Marco Polo", "Johannes Gutenberg", "Nicolaus Copernicus"]'::jsonb, 2, 'Johannes Gutenberg developed a movable-type printing system in Europe in the 15th century.'),
   ('history', 'hard', 'What was the capital of the Byzantine Empire for most of its history?', '["Athens", "Antioch", "Alexandria", "Constantinople"]'::jsonb, 3, 'Constantinople served as the Byzantine Empire capital until its fall in 1453.'),
-  ('history', 'hard', 'In what year did the Meiji Restoration begin in Japan?', '["1868", "1853", "1889", "1905"]'::jsonb, 0, 'The Meiji Restoration began in 1868, restoring imperial rule and launching rapid modernization.')
+  ('history', 'hard', 'In what year did the Meiji Restoration begin in Japan?', '["1868", "1853", "1889", "1905"]'::jsonb, 0, 'The Meiji Restoration began in 1868, restoring imperial rule and launching rapid modernization.'),
+  ('club_carnival', 'easy', 'Will you be participating and helping our club in Club Carnival?', '["Yes, I want to help!", "No, I cannot help", "Maybe later", "I will think about it"]'::jsonb, 0, 'Great! We need enthusiastic helpers to make Club Carnival a success!'),
+  ('club_carnival', 'easy', 'What do you want to help us with?', '["Putting food in plates", "Money handling (must be good at math)", "Asking people for what they want (communicator and leader)", "Going around and getting friends to come buy"]'::jsonb, 0, 'Every role is important! Let us know your preference.'),
+  ('club_carnival', 'easy', 'Do you want to bring something for our club to sell?', '["Yes, I have something in mind!", "No, I will not bring anything", "Maybe, let me think", "I will ask my friends"]'::jsonb, 0, 'Awesome! Homemade treats and unique items are always welcome!'),
+  ('club_carnival', 'easy', 'What date is Club Carnival?', '["October 15", "October 16 at lunch", "October 17", "October 18"]'::jsonb, 1, 'Mark your calendar! Club Carnival is on October 16 at lunch. See you there!'),
 ON CONFLICT (category_id, difficulty, prompt) DO NOTHING;
