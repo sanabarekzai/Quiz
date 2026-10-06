@@ -65,15 +65,15 @@ function shell(content, screenName = "setup") {
   return `
     <div class="app-frame">
       <header class="topbar">
-        <a class="brand" href="/" aria-label="QuickQuiz home">
-          <img class="brand-logo" src="/study-smart-logo.jpg" alt="Study Smart — Academic Web Design" width="520" height="375">
+        <a class="brand" href="/" aria-label="Study Smart Club Survey home">
+          <img class="brand-logo" src="/study-smart-logo.jpg" alt="Study Smart Club Survey" width="520" height="375">
         </a>
-        <div class="top-note"><span class="top-note-mark" aria-hidden="true"></span>${sectionLabel}</div>
+        <div class="top-note"><span class="top-note-mark" aria-hidden="true"></span>Study Smart Club Survey</div>
       </header>
       ${content}
       <footer class="app-footer">
-        <span>QuickQuiz · Stay curious</span>
-        <span>A little thinking goes a long way</span>
+        <span>Study Smart Club Survey</span>
+        <span>Track your knowledge progress</span>
       </footer>
     </div>`;
 }
@@ -82,19 +82,19 @@ function renderSetup() {
   app.innerHTML = shell(`
     <main class="setup-layout reveal">
       <section class="intro-panel" aria-labelledby="intro-title">
-        <div class="intro-top eyebrow eyebrow-light"><span class="eyebrow-line"></span> A pocket-sized challenge</div>
+        <div class="intro-top eyebrow eyebrow-light"><span class="eyebrow-line"></span> Knowledge Assessment</div>
         <div class="intro-copy">
-          <h1 id="intro-title">A little thinking <em>goes a long way.</em></h1>
-          <p>Pick a subject that makes you curious. Take a few questions. Leave with a new fact or two.</p>
+          <h1 id="intro-title">Study Smart Club <em>Survey</em></h1>
+          <p>Test your knowledge and track your progress through our quiz.</p>
         </div>
-        <div class="orbit-tag" aria-hidden="true">Curiosity<br>looks good<br>on you</div>
-        <div class="intro-foot"><span>No grades. Just good questions.</span><span>01 / 03</span></div>
+        <div class="orbit-tag" aria-hidden="true">Knowledge<br>is power<br>here</div>
+        <div class="intro-foot"><span>Track your learning journey</span><span>01 / 03</span></div>
       </section>
       <section class="setup-content" aria-labelledby="setup-title">
         <div class="setup-heading">
-          <div class="eyebrow"><span class="eyebrow-line"></span> Make it your kind of quiz</div>
-          <h2 id="setup-title">Set up your round</h2>
-          <p>Choose a topic, set the pace, and we’ll take it from there.</p>
+          <div class="eyebrow"><span class="eyebrow-line"></span> Configure your quiz</div>
+          <h2 id="setup-title">Set up your survey</h2>
+          <p>Choose a category, set the difficulty, and begin your quiz.</p>
         </div>
         ${state.setupError ? `
           <div class="notice" role="alert">
@@ -149,7 +149,7 @@ function renderSetup() {
             </div>
             <div class="form-actions">
               <button class="primary-button start-button" type="submit" ${state.starting || !state.selectedCategory ? "disabled" : ""}>
-                <span>${state.starting ? "Getting your questions…" : "Start a quick quiz"}</span><span class="button-arrow" aria-hidden="true">${state.starting ? "…" : "→"}</span>
+                <span>${state.starting ? "Getting your questions…" : "Start Survey"}</span><span class="button-arrow" aria-hidden="true">${state.starting ? "…" : "→"}</span>
               </button>
               <p class="form-footnote">A few minutes, a fresh perspective. That’s the whole plan.</p>
             </div>
@@ -185,7 +185,7 @@ function renderQuiz() {
   app.innerHTML = shell(`
     <main class="quiz-layout reveal">
       <div class="quiz-topline">
-        <div class="eyebrow eyebrow-dark"><span class="eyebrow-line"></span> Stay curious, ${escapeHTML(state.playerName)}</div>
+        <div class="eyebrow eyebrow-dark"><span class="eyebrow-line"></span> Welcome, ${escapeHTML(state.playerName)}</div>
         <div class="round-meta">
           <span class="meta-chip">${escapeHTML(category?.title || state.question.category)}</span>
           <span class="meta-chip">${escapeHTML(state.difficulty)} pace</span>
@@ -199,26 +199,26 @@ function renderQuiz() {
       </div>
       <div class="quiz-columns">
         <section class="question-card" aria-labelledby="question-title">
-          <div class="question-kicker">A question for your curious side</div>
+          <div class="question-kicker">Question ${current} of ${total}</div>
           <h1 class="question-title" id="question-title">${escapeHTML(state.question.prompt)}</h1>
           <form id="answer-form">
             ${renderQuestionOptions()}
             <div class="question-actions">
-              <span class="selection-hint">${feedback ? "Your answer is in." : state.selectedIndex === null ? "Go with your first thought." : "Ready when you are."}</span>
+              <span class="selection-hint">${feedback ? "Your answer is in." : state.selectedIndex === null ? "Select an answer." : "Ready to submit."}</span>
               <button class="primary-button submit-answer" type="submit" ${state.submitting || feedback || state.selectedIndex === null ? "disabled" : ""}>
-                <span>${state.submitting ? "Checking…" : "Lock in answer"}</span><span class="button-arrow" aria-hidden="true">${state.submitting ? "…" : "→"}</span>
+                <span>${state.submitting ? "Submitting…" : "Submit Answer"}</span><span class="button-arrow" aria-hidden="true">${state.submitting ? "…" : "→"}</span>
               </button>
             </div>
-            ${state.answerError ? `<div class="notice answer-error" role="alert"><span class="notice-symbol" aria-hidden="true">!</span><div><strong>Your answer didn’t go through.</strong><p>${escapeHTML(state.answerError)} Choose “Lock in answer” to try once more.</p></div></div>` : ""}
+            ${state.answerError ? `<div class="notice answer-error" role="alert"><span class="notice-symbol" aria-hidden="true">!</span><div><strong>Your answer didn’t go through.</strong><p>${escapeHTML(state.answerError)} Choose “Submit Answer” to try once more.</p></div></div>` : ""}
           </form>
           ${feedback ? `
             <section class="feedback-card ${feedback.correct ? "" : "is-wrong"}" aria-live="polite" aria-atomic="true">
-              <h2 class="feedback-title"><span>${feedback.correct ? "That’s right." : "Not quite — now you know."}</span><span aria-hidden="true">${feedback.correct ? "✓" : "↗"}</span></h2>
-              ${feedback.explanation ? `<p class="feedback-copy">${escapeHTML(feedback.explanation)}</p>` : `<p class="feedback-copy">The answer is highlighted above. Ready to keep going?</p>`}
+              <h2 class="feedback-title"><span>${feedback.correct ? "That’s right." : "Incorrect."}</span><span aria-hidden="true">${feedback.correct ? "✓" : "✗"}</span></h2>
+              ${feedback.explanation ? `<p class="feedback-copy">${escapeHTML(feedback.explanation)}</p>` : `<p class="feedback-copy">The correct answer is highlighted above. Ready for the next question?</p>`}
               <div class="feedback-actions">
-                ${feedback.completed ? `<button class="primary-button" type="button" data-action="show-results"><span>See how you did</span><span class="button-arrow" aria-hidden="true">→</span></button>` :
-                  feedback.nextQuestion ? `<button class="primary-button" type="button" data-action="next-question"><span>Next question</span><span class="button-arrow" aria-hidden="true">→</span></button>` :
-                  `<button class="secondary-button" type="button" data-action="back-to-setup">Back to setup</button>`}
+                ${feedback.completed ? `<button class="primary-button" type="button" data-action="show-results"><span>View Results</span><span class="button-arrow" aria-hidden="true">→</span></button>` :
+                  feedback.nextQuestion ? `<button class="primary-button" type="button" data-action="next-question"><span>Next Question</span><span class="button-arrow" aria-hidden="true">→</span></button>` :
+                  `<button class="secondary-button" type="button" data-action="back-to-setup">Back to Setup</button>`}
               </div>
             </section>` : ""}
           ${noNext ? `<div class="notice flow-error" role="status"><span class="notice-symbol" aria-hidden="true">!</span><div><strong>This round has paused.</strong><p>No next question came through, so we can’t continue this session.</p></div></div>` : ""}
@@ -249,7 +249,7 @@ function renderLeaderboard() {
   if (!state.leaderboard.length) {
     return `<div class="empty-leaderboard" role="status"><strong>First name on the board?</strong>No completed rounds are listed for this category yet.</div>`;
   }
-  return `<div class="leaderboard-list" role="table" aria-label="Category leaderboard">
+  return `<div class="leaderboard-list" role="table" aria-label="Survey Leaderboard">
     <div class="leaderboard-head" role="row">
       <span role="columnheader">Place</span><span role="columnheader">Player</span><span role="columnheader">Score</span><span role="columnheader">Pace</span><span role="columnheader">Date</span>
     </div>
@@ -280,9 +280,9 @@ function renderResults() {
     <main class="results-layout reveal">
       <section class="results-hero" aria-labelledby="results-title">
         <div class="results-copy">
-          <div class="eyebrow"><span class="eyebrow-line"></span> Round complete · ${escapeHTML(result.playerName || state.playerName)}</div>
-          <h1 id="results-title">${perfectRound ? "A perfect little detour." : "Look at you, getting curious."}</h1>
-          <p>${perfectRound ? "Every answer landed. Take a well-earned mental victory lap." : "Every question is a chance to find out something new. Nice work showing up."}</p>
+          <div class="eyebrow"><span class="eyebrow-line"></span> Survey complete · ${escapeHTML(result.playerName || state.playerName)}</div>
+          <h1 id="results-title">${perfectRound ? "Perfect Score!" : "Great Effort!"}</h1>
+          <p>${perfectRound ? "You answered all questions correctly! Excellent work." : "You've completed the survey. Review your results below."}</p>
           <div class="result-stats">
             <span class="result-stat"><strong>${escapeHTML(category?.title || result.category)}</strong> category</span>
             <span class="result-stat"><strong>${escapeHTML(String(result.difficulty || state.difficulty))}</strong> pace</span>
@@ -296,13 +296,13 @@ function renderResults() {
       </section>
       <section class="leaderboard-section" aria-labelledby="leaderboard-title">
         <div class="leaderboard-heading">
-          <div><div class="eyebrow"><span class="eyebrow-line"></span> The curious crowd</div><h2 id="leaderboard-title">Category leaderboard</h2></div>
+          <div><div class="eyebrow"><span class="eyebrow-line"></span> Results Summary</div><h2 id="leaderboard-title">Survey Leaderboard</h2></div>
           <div class="leaderboard-category">${escapeHTML(category?.title || result.category)}</div>
         </div>
         ${renderLeaderboard()}
         <div class="leaderboard-footer">
-          <p>Different paces, same curiosity.</p>
-          <button class="primary-button" type="button" data-action="back-to-setup"><span>Set up another round</span><span class="button-arrow" aria-hidden="true">→</span></button>
+          <p>Compare your results with others.</p>
+          <button class="primary-button" type="button" data-action="back-to-setup"><span>Take Another Survey</span><span class="button-arrow" aria-hidden="true">→</span></button>
         </div>
       </section>
     </main>`, "results");
@@ -481,7 +481,7 @@ app.addEventListener("change", (event) => {
     const submit = app.querySelector(".submit-answer");
     if (submit) submit.disabled = state.submitting || Boolean(state.feedback) || state.selectedIndex === null;
     const hint = app.querySelector(".selection-hint");
-    if (hint) hint.textContent = "Ready when you are.";
+    if (hint) hint.textContent = "Ready to submit.";
   }
 });
 
