@@ -66,8 +66,7 @@ function shell(content, screenName = "setup") {
     <div class="app-frame">
       <header class="topbar">
         <a class="brand" href="/" aria-label="QuickQuiz home">
-          <span class="brand-mark" aria-hidden="true"></span>
-          <span class="brand-name">quick<span>quiz</span></span>
+          <img class="brand-logo" src="/study-smart-logo.jpg" alt="Study Smart — Academic Web Design" width="520" height="375">
         </a>
         <div class="top-note"><span class="top-note-mark" aria-hidden="true"></span>${sectionLabel}</div>
       </header>
