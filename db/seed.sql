@@ -59,5 +59,11 @@ INSERT INTO quiz_questions (category_id, difficulty, prompt, options, correct_in
   ('club_carnival', 'easy', 'What do you want to help us with?', '["Putting food in plates", "Money handling (must be good at math)", "Asking people for what they want (communicator and leader)", "Going around and getting friends to come buy"]'::jsonb, 0, 'Every role is important! Let us know your preference.'),
   ('club_carnival', 'easy', 'Do you want to bring something for our club to sell?', '["Yes, I have something in mind!", "No, I will not bring anything", "Maybe, let me think", "I will ask my friends"]'::jsonb, 0, 'Awesome! Homemade treats and unique items are always welcome!'),
   ('club_carnival', 'easy', 'What date is Club Carnival?', '["October 15", "October 16 at lunch", "October 17", "October 18"]'::jsonb, 1, 'Mark your calendar! Club Carnival is on October 16 at lunch. See you there!'),
-  ('club_carnival', 'easy', 'How can you help more people find our Club Carnival booth?', '["Invite friends to stop by", "Keep the booth a secret", "Tell people the event is canceled", "Ask people to avoid the booth"]'::jsonb, 0, 'Inviting friends and classmates helps bring more visitors to the club booth.')
+  ('club_carnival', 'easy', 'How do you like the club so far?', '["Meh", "I don''t like it", "I love this club", "It''s my favorite!"]'::jsonb, 0, 'Thanks for sharing your thoughts about the club.')
 ON CONFLICT (category_id, difficulty, prompt) DO NOTHING;
+
+UPDATE quiz_questions
+SET is_scored = FALSE
+WHERE category_id = 'club_carnival'
+  AND difficulty = 'easy'
+  AND prompt = 'How do you like the club so far?';

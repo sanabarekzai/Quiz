@@ -175,12 +175,13 @@ function renderSetup() {
 
 function renderQuestionOptions() {
   const locked = Boolean(state.feedback);
+  const isScored = state.feedback?.isScored !== false;
   return `<fieldset class="answer-list" ${locked ? 'data-locked="true"' : ""}>
     <legend class="visually-hidden">Choose one answer</legend>
     ${(state.question.options || []).map((option, index) => {
       const selected = state.selectedIndex === index;
-      const correct = locked && state.feedback.correctIndex === index;
-      const wrong = locked && selected && !state.feedback.correct;
+      const correct = locked && isScored && state.feedback.correctIndex === index;
+      const wrong = locked && isScored && selected && !state.feedback.correct;
       return `<label class="answer-option" data-selected="${selected}" ${correct ? 'data-correct="true"' : ""} ${wrong ? 'data-wrong="true"' : ""}>
         <input type="radio" name="answer" value="${index}" ${selected ? "checked" : ""} ${locked || state.submitting ? "disabled" : ""}>
         <span class="answer-letter" aria-hidden="true">${String.fromCharCode(65 + index)}</span>
@@ -196,6 +197,7 @@ function renderQuiz() {
   const percent = Math.round((Math.min(state.answeredCount, total) / total) * 100);
   const category = state.quizzes.find((quiz) => quiz.category === state.selectedCategory);
   const feedback = state.feedback;
+  const opinionAnswer = feedback?.isScored === false;
   const noNext = feedback && !feedback.completed && !feedback.nextQuestion;
   app.innerHTML = shell(`
     <main class="quiz-layout reveal">
@@ -216,6 +218,7 @@ function renderQuiz() {
         <section class="question-card" aria-labelledby="question-title">
           <div class="question-kicker">Question ${current} of ${total}</div>
           <h1 class="question-title" id="question-title">${escapeHTML(state.question.prompt)}</h1>
+          ${state.question.isScored === false ? '<p class="question-note">Your answer is an opinion and won’t affect your score.</p>' : ""}
           <form id="answer-form">
             ${renderQuestionOptions()}
             <div class="question-actions">
@@ -227,9 +230,9 @@ function renderQuiz() {
             ${state.answerError ? `<div class="notice answer-error" role="alert"><span class="notice-symbol" aria-hidden="true">!</span><div><strong>Your answer didn’t go through.</strong><p>${escapeHTML(state.answerError)} Choose “Submit Answer” to try once more.</p></div></div>` : ""}
           </form>
           ${feedback ? `
-            <section class="feedback-card ${feedback.correct ? "" : "is-wrong"}" aria-live="polite" aria-atomic="true">
-              <h2 class="feedback-title"><span>${feedback.correct ? "That’s right." : "Incorrect."}</span><span aria-hidden="true">${feedback.correct ? "✓" : "✗"}</span></h2>
-              ${feedback.explanation ? `<p class="feedback-copy">${escapeHTML(feedback.explanation)}</p>` : `<p class="feedback-copy">The correct answer is highlighted above. Ready for the next question?</p>`}
+            <section class="feedback-card ${opinionAnswer ? "is-neutral" : feedback.correct ? "" : "is-wrong"}" aria-live="polite" aria-atomic="true">
+              <h2 class="feedback-title"><span>${opinionAnswer ? "Thanks for sharing." : feedback.correct ? "That’s right." : "Incorrect."}</span><span aria-hidden="true">${opinionAnswer ? "•" : feedback.correct ? "✓" : "✗"}</span></h2>
+              ${feedback.explanation ? `<p class="feedback-copy">${escapeHTML(feedback.explanation)}</p>` : opinionAnswer ? `<p class="feedback-copy">Your answer was recorded and didn’t affect your score.</p>` : `<p class="feedback-copy">The correct answer is highlighted above. Ready for the next question?</p>`}
               <div class="feedback-actions">
                 ${feedback.completed ? `<button class="primary-button" type="button" data-action="show-results"><span>View Results</span><span class="button-arrow" aria-hidden="true">→</span></button>` :
                   feedback.nextQuestion ? `<button class="primary-button" type="button" data-action="next-question"><span>Next Question</span><span class="button-arrow" aria-hidden="true">→</span></button>` :
@@ -277,7 +280,7 @@ function renderLeaderboard() {
       return `<div class="leaderboard-row" role="row">
         <span class="rank-cell" role="cell">${String(index + 1).padStart(2, "0")}</span>
         <span class="player-cell" role="cell"><span class="player-name">${escapeHTML(entry.playerName)}</span><span class="player-detail">${escapeHTML(entry.difficulty)} pace</span></span>
-        <span class="leaderboard-value" role="cell"><strong>${escapeHTML(entry.score)}</strong> / ${escapeHTML(entry.totalQuestions)}</span>
+        <span class="leaderboard-value" role="cell"><strong>${escapeHTML(entry.score)}</strong> / ${escapeHTML(entry.scoreTotal ?? entry.totalQuestions)}</span>
         <span class="leaderboard-value" role="cell">${escapeHTML(formatDuration(entry.durationSeconds))}</span>
         <span class="leaderboard-value" role="cell">${escapeHTML(completedDate)}</span>
       </div>`;
@@ -290,22 +293,23 @@ function renderResults() {
   const category = state.quizzes.find((quiz) => quiz.category === result.category);
   const score = Number(result.score) || 0;
   const total = Number(result.totalQuestions) || state.totalQuestions || 0;
-  const perfectRound = total > 0 && score === total;
+  const scoreTotal = Number(result.scoreTotal ?? total);
+  const perfectRound = scoreTotal > 0 && score === scoreTotal;
   app.innerHTML = shell(`
     <main class="results-layout reveal">
       <section class="results-hero" aria-labelledby="results-title">
         <div class="results-copy">
           <div class="eyebrow"><span class="eyebrow-line"></span> Survey complete · ${escapeHTML(result.playerName || state.playerName)}</div>
           <h1 id="results-title">${perfectRound ? "Perfect Score!" : "Great Effort!"}</h1>
-          <p>${perfectRound ? "You answered all questions correctly! Excellent work." : "You've completed the survey. Review your results below."}</p>
+          <p>${perfectRound ? "You answered all scored questions correctly! Excellent work." : "You've completed the survey. Review your results below."}</p>
           <div class="result-stats">
             <span class="result-stat"><strong>${escapeHTML(category?.title || result.category)}</strong> category</span>
             <span class="result-stat"><strong>${escapeHTML(String(result.difficulty || state.difficulty))}</strong> pace</span>
             <span class="result-stat"><strong>${escapeHTML(formatDuration(result.durationSeconds))}</strong> elapsed</span>
           </div>
         </div>
-        <div class="score-stamp" aria-label="Score ${score} out of ${total}">
-          <span class="score-number">${escapeHTML(score)}<span style="font-size:.52em">/${escapeHTML(total)}</span></span>
+        <div class="score-stamp" aria-label="Score ${score} out of ${scoreTotal}">
+          <span class="score-number">${escapeHTML(score)}<span style="font-size:.52em">/${escapeHTML(scoreTotal)}</span></span>
           <span class="score-caption">your score</span>
         </div>
       </section>
@@ -403,7 +407,11 @@ async function submitAnswer(form) {
         selectedIndex: state.selectedIndex,
       }),
     });
-    if (!result || typeof result.correct !== "boolean") throw new Error("We couldn’t read the answer result. Please try again.");
+    if (!result || typeof result.isScored !== "boolean" ||
+        (result.isScored && typeof result.correct !== "boolean") ||
+        (!result.isScored && result.correct !== null)) {
+      throw new Error("We couldn’t read the answer result. Please try again.");
+    }
 
     state.answeredCount += 1;
     state.feedback = result;
@@ -414,6 +422,7 @@ async function submitAnswer(form) {
         category: state.selectedCategory,
         difficulty: state.difficulty,
         score: result.score,
+        scoreTotal: result.scoreTotal,
         totalQuestions: result.totalQuestions || state.totalQuestions,
         durationSeconds: result.durationSeconds,
       };

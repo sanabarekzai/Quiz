@@ -12,10 +12,14 @@ CREATE TABLE IF NOT EXISTS quiz_questions (
   prompt TEXT NOT NULL,
   options JSONB NOT NULL CHECK (jsonb_typeof(options) = 'array' AND jsonb_array_length(options) = 4),
   correct_index SMALLINT NOT NULL CHECK (correct_index BETWEEN 0 AND 3),
+  is_scored BOOLEAN NOT NULL DEFAULT TRUE,
   explanation TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (category_id, difficulty, prompt)
 );
+
+ALTER TABLE quiz_questions
+  ADD COLUMN IF NOT EXISTS is_scored BOOLEAN NOT NULL DEFAULT TRUE;
 
 CREATE TABLE IF NOT EXISTS quiz_sessions (
   id UUID PRIMARY KEY,

@@ -30,6 +30,7 @@ function publicQuestion(row) {
     difficulty: row.difficulty,
     prompt: row.prompt,
     options: row.options,
+    isScored: row.is_scored,
   };
 }
 
@@ -97,15 +98,15 @@ app.post("/api/sessions", async (req, res, next) => {
     }
 
     const questionQuery = category === "mixed"
-      ? `SELECT id, category_id, difficulty, prompt, options
+      ? `SELECT id, category_id, difficulty, prompt, options, is_scored
          FROM quiz_questions
          WHERE difficulty = $1 AND category_id <> 'club_carnival'
          ORDER BY random()
          LIMIT $2`
-      : `SELECT id, category_id, difficulty, prompt, options
+      : `SELECT id, category_id, difficulty, prompt, options, is_scored
          FROM quiz_questions
          WHERE category_id = $1 AND difficulty = $2
-         ORDER BY random()
+         ORDER BY CASE WHEN category_id = 'club_carnival' THEN id END, random()
          LIMIT $3`;
     const questionParams = category === "mixed"
       ? [difficulty, QUESTIONS_PER_GAME]
@@ -177,18 +178,21 @@ app.post("/api/sessions/:sessionId/answer", async (req, res, next) => {
     }
 
     const questionResult = await client.query(
-      "SELECT correct_index, explanation FROM quiz_questions WHERE id = $1",
+      "SELECT correct_index, is_scored, explanation FROM quiz_questions WHERE id = $1",
       [questionId],
     );
     if (questionResult.rowCount === 0) {
       throw new Error("A quiz session references a missing question.");
     }
     const question = questionResult.rows[0];
-    const correct = selectedIndex === question.correct_index;
+    const isScored = question.is_scored;
+    const correct = isScored ? selectedIndex === question.correct_index : null;
+    const pointsAwarded = correct === true ? 1 : 0;
     const completed = session.current_index + 1 >= session.total_questions;
     const answer = JSON.stringify([{
       questionId,
       selectedIndex,
+      isScored,
       correct,
     }]);
 
@@ -206,13 +210,13 @@ app.post("/api/sessions/:sessionId/answer", async (req, res, next) => {
            completed_at = CASE WHEN $4 = 'completed' THEN NOW() ELSE NULL END
        WHERE id = $1
        RETURNING score, current_index, total_questions, duration_seconds`,
-      [sessionId, correct ? 1 : 0, answer, completed ? "completed" : "in_progress"],
+      [sessionId, pointsAwarded, answer, completed ? "completed" : "in_progress"],
     );
     const updated = updatedResult.rows[0];
     let nextQuestion = null;
     if (!completed) {
       const nextQuestionResult = await client.query(
-        `SELECT id, category_id, difficulty, prompt, options
+        `SELECT id, category_id, difficulty, prompt, options, is_scored
          FROM quiz_questions
          WHERE id = $1`,
         [session.question_ids[updated.current_index]],
@@ -222,15 +226,23 @@ app.post("/api/sessions/:sessionId/answer", async (req, res, next) => {
       }
       nextQuestion = publicQuestion(nextQuestionResult.rows[0]);
     }
+    const scoreTotalResult = await client.query(
+      `SELECT COUNT(*)::int AS score_total
+       FROM quiz_questions
+       WHERE id = ANY($1::int[]) AND is_scored = TRUE`,
+      [session.question_ids],
+    );
 
     await client.query("COMMIT");
     transactionOpen = false;
     res.json({
+      isScored,
       correct,
-      correctIndex: question.correct_index,
+      correctIndex: isScored ? question.correct_index : null,
       explanation: question.explanation,
       currentIndex: updated.current_index,
       totalQuestions: updated.total_questions,
+      scoreTotal: scoreTotalResult.rows[0].score_total,
       completed,
       score: updated.score,
       nextQuestion,
@@ -252,12 +264,15 @@ app.get("/api/leaderboard", async (req, res, next) => {
     let result;
     if (category === undefined || category === "all") {
       result = await pool.query(`
-        SELECT player_name AS "playerName", category_id AS category, difficulty,
-               score, total_questions AS "totalQuestions",
-               duration_seconds AS "durationSeconds", completed_at AS "completedAt"
-        FROM quiz_sessions
-        WHERE status = 'completed'
-        ORDER BY score DESC, duration_seconds ASC, completed_at DESC
+        SELECT s.player_name AS "playerName", s.category_id AS category, s.difficulty,
+               s.score, s.total_questions AS "totalQuestions",
+               (SELECT COUNT(*)::int
+                FROM quiz_questions q
+                WHERE q.id = ANY(s.question_ids) AND q.is_scored) AS "scoreTotal",
+               s.duration_seconds AS "durationSeconds", s.completed_at AS "completedAt"
+        FROM quiz_sessions s
+        WHERE s.status = 'completed'
+        ORDER BY s.score DESC, s.duration_seconds ASC, s.completed_at DESC
         LIMIT 10
       `);
     } else {
@@ -272,12 +287,15 @@ app.get("/api/leaderboard", async (req, res, next) => {
         return res.status(400).json({ error: "Choose a valid quiz category." });
       }
       result = await pool.query(
-        `SELECT player_name AS "playerName", category_id AS category, difficulty,
-                score, total_questions AS "totalQuestions",
-                duration_seconds AS "durationSeconds", completed_at AS "completedAt"
-         FROM quiz_sessions
-         WHERE status = 'completed' AND category_id = $1
-         ORDER BY score DESC, duration_seconds ASC, completed_at DESC
+        `SELECT s.player_name AS "playerName", s.category_id AS category, s.difficulty,
+                s.score, s.total_questions AS "totalQuestions",
+                (SELECT COUNT(*)::int
+                 FROM quiz_questions q
+                 WHERE q.id = ANY(s.question_ids) AND q.is_scored) AS "scoreTotal",
+                s.duration_seconds AS "durationSeconds", s.completed_at AS "completedAt"
+         FROM quiz_sessions s
+         WHERE s.status = 'completed' AND s.category_id = $1
+         ORDER BY s.score DESC, s.duration_seconds ASC, s.completed_at DESC
          LIMIT 10`,
         [category],
       );

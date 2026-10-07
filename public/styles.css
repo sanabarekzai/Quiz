@@ -505,6 +505,7 @@ button { color: inherit; }
 
 .question-kicker { color: var(--coral); font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
 .question-title { max-width: 650px; margin: 14px 0 27px; font-family: var(--display); font-size: clamp(27px, 3.5vw, 41px); line-height: 1.12; letter-spacing: -.055em; }
+.question-note { margin: -12px 0 20px; color: #53647a; font-size: 12px; line-height: 1.5; }
 .answer-list { display: grid; gap: 10px; }
 .answer-option {
   min-height: 57px;
@@ -569,6 +570,9 @@ button { color: inherit; }
 .feedback-card.is-wrong .feedback-title { color: var(--danger); }
 .feedback-copy { margin: 0; color: #626b6a; font-size: 12px; line-height: 1.6; }
 .feedback-card.is-wrong .feedback-copy { color: #796965; }
+.feedback-card.is-neutral { border-color: #cfd8e5; background: #f1f4f8; }
+.feedback-card.is-neutral .feedback-title,
+.feedback-card.is-neutral .feedback-copy { color: #53647a; }
 .feedback-actions { display: flex; justify-content: flex-end; margin-top: 15px; }
 .feedback-actions .primary-button { min-height: 44px; border-radius: 5px 5px 5px 13px; font-size: 11px; }
 
