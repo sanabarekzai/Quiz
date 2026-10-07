@@ -41,6 +41,10 @@ const formatDuration = (value) => {
 
 const difficultyLevels = ["easy", "medium", "hard"];
 
+function isOpinionSurvey(category) {
+  return category === "club_carnival";
+}
+
 function getAvailableDifficulties(quiz) {
   if (!quiz?.availableDifficulties) return difficultyLevels;
   return difficultyLevels.filter((level) => quiz.availableDifficulties[level]);
@@ -87,6 +91,7 @@ function shell(content, screenName = "setup") {
 
 function renderSetup() {
   const selectedQuiz = state.quizzes.find((quiz) => quiz.category === state.selectedCategory);
+  const isSurvey = isOpinionSurvey(state.selectedCategory);
   const availableDifficulties = getAvailableDifficulties(selectedQuiz);
   const selectedDifficulty = availableDifficulties.includes(state.difficulty)
     ? state.difficulty
@@ -95,19 +100,19 @@ function renderSetup() {
   app.innerHTML = shell(`
     <main class="setup-layout reveal">
       <section class="intro-panel" aria-labelledby="intro-title">
-        <div class="intro-top eyebrow eyebrow-light"><span class="eyebrow-line"></span> Knowledge Assessment</div>
+        <div class="intro-top eyebrow eyebrow-light"><span class="eyebrow-line"></span> ${isSurvey ? "Club Carnival Survey" : "Knowledge Assessment"}</div>
         <div class="intro-copy">
           <h1 id="intro-title">Study Smart Club <em>Survey</em></h1>
-          <p>Test your knowledge and track your progress through our quiz.</p>
+          <p>${isSurvey ? "Share your thoughts and help us make Club Carnival better." : "Test your knowledge and track your progress through our quiz."}</p>
         </div>
         <div class="orbit-tag" aria-hidden="true">Knowledge<br>is power<br>here</div>
-        <div class="intro-foot"><span>Track your learning journey</span><span>01 / 03</span></div>
+        <div class="intro-foot"><span>${isSurvey ? "Every opinion matters" : "Track your learning journey"}</span><span>01 / 03</span></div>
       </section>
       <section class="setup-content" aria-labelledby="setup-title">
         <div class="setup-heading">
-          <div class="eyebrow"><span class="eyebrow-line"></span> Configure your quiz</div>
-          <h2 id="setup-title">Set up your survey</h2>
-          <p>Choose a category, set the difficulty, and begin your quiz.</p>
+          <div class="eyebrow"><span class="eyebrow-line"></span> ${isSurvey ? "Share your feedback" : "Configure your quiz"}</div>
+          <h2 id="setup-title">${isSurvey ? "Club Carnival survey" : "Set up your survey"}</h2>
+          <p>${isSurvey ? "There are no right or wrong answers—choose what feels right to you." : "Choose a category, set the difficulty, and begin your quiz."}</p>
         </div>
         ${state.setupError ? `
           <div class="notice" role="alert">
@@ -146,7 +151,7 @@ function renderSetup() {
                 }).join("")}
               </div>
             </fieldset>
-            <fieldset class="form-section">
+            ${isSurvey ? "" : `<fieldset class="form-section">
               <legend class="section-heading">Pick your pace <span class="section-hint" data-role="difficulty-hint">${availableDifficulties.length === 1 ? `${availableDifficulties[0][0].toUpperCase()}${availableDifficulties[0].slice(1)} only` : "You can do this"}</span></legend>
               <div class="difficulty-options">
                 ${difficultyLevels.map((level) => {
@@ -157,9 +162,9 @@ function renderSetup() {
                   </label>`;
                 }).join("")}
               </div>
-            </fieldset>
+            </fieldset>`}
             <div class="form-section">
-              <label class="section-heading" for="player-name">What should we call you? <span class="section-hint">On the leaderboard</span></label>
+              <label class="section-heading" for="player-name">What should we call you? <span class="section-hint">${isSurvey ? "For this survey" : "On the leaderboard"}</span></label>
             <input class="name-field" id="player-name" name="playerName" type="text" maxlength="24" autocomplete="nickname" placeholder="Your name" value="${escapeHTML(state.playerName)}" required>
             </div>
             <div class="form-actions">
@@ -196,6 +201,7 @@ function renderQuiz() {
   const current = Math.min(total, state.answeredCount + (state.feedback ? 0 : 1));
   const percent = Math.round((Math.min(state.answeredCount, total) / total) * 100);
   const category = state.quizzes.find((quiz) => quiz.category === state.selectedCategory);
+  const isSurvey = isOpinionSurvey(state.question?.category || state.selectedCategory);
   const feedback = state.feedback;
   const opinionAnswer = feedback?.isScored === false;
   const noNext = feedback && !feedback.completed && !feedback.nextQuestion;
@@ -218,21 +224,21 @@ function renderQuiz() {
         <section class="question-card" aria-labelledby="question-title">
           <div class="question-kicker">Question ${current} of ${total}</div>
           <h1 class="question-title" id="question-title">${escapeHTML(state.question.prompt)}</h1>
-          ${state.question.isScored === false ? '<p class="question-note">Your answer is an opinion and won’t affect your score.</p>' : ""}
+          ${isSurvey ? '<p class="question-note">This is a survey—there are no right or wrong answers.</p>' : state.question.isScored === false ? '<p class="question-note">Your answer is an opinion and won’t affect your score.</p>' : ""}
           <form id="answer-form">
             ${renderQuestionOptions()}
             <div class="question-actions">
-              <span class="selection-hint">${feedback ? "Your answer is in." : state.selectedIndex === null ? "Select an answer." : "Ready to submit."}</span>
+              <span class="selection-hint">${feedback ? (isSurvey ? "Your response is recorded." : "Your answer is in.") : state.selectedIndex === null ? (isSurvey ? "Choose the response that fits you." : "Select an answer.") : "Ready to submit."}</span>
               <button class="primary-button submit-answer" type="submit" ${state.submitting || feedback || state.selectedIndex === null ? "disabled" : ""}>
-                <span>${state.submitting ? "Submitting…" : "Submit Answer"}</span><span class="button-arrow" aria-hidden="true">${state.submitting ? "…" : "→"}</span>
+                <span>${state.submitting ? (isSurvey ? "Saving…" : "Submitting…") : (isSurvey ? "Submit Response" : "Submit Answer")}</span><span class="button-arrow" aria-hidden="true">${state.submitting ? "…" : "→"}</span>
               </button>
             </div>
-            ${state.answerError ? `<div class="notice answer-error" role="alert"><span class="notice-symbol" aria-hidden="true">!</span><div><strong>Your answer didn’t go through.</strong><p>${escapeHTML(state.answerError)} Choose “Submit Answer” to try once more.</p></div></div>` : ""}
+            ${state.answerError ? `<div class="notice answer-error" role="alert"><span class="notice-symbol" aria-hidden="true">!</span><div><strong>Your response didn’t go through.</strong><p>${escapeHTML(state.answerError)} Choose “${isSurvey ? "Submit Response" : "Submit Answer"}” to try once more.</p></div></div>` : ""}
           </form>
           ${feedback ? `
             <section class="feedback-card ${opinionAnswer ? "is-neutral" : feedback.correct ? "" : "is-wrong"}" aria-live="polite" aria-atomic="true">
               <h2 class="feedback-title"><span>${opinionAnswer ? "Thanks for sharing." : feedback.correct ? "That’s right." : "Incorrect."}</span><span aria-hidden="true">${opinionAnswer ? "•" : feedback.correct ? "✓" : "✗"}</span></h2>
-              ${feedback.explanation ? `<p class="feedback-copy">${escapeHTML(feedback.explanation)}</p>` : opinionAnswer ? `<p class="feedback-copy">Your answer was recorded and didn’t affect your score.</p>` : `<p class="feedback-copy">The correct answer is highlighted above. Ready for the next question?</p>`}
+              ${isSurvey ? `<p class="feedback-copy">Your response has been recorded. There are no right or wrong answers.</p>` : feedback.explanation ? `<p class="feedback-copy">${escapeHTML(feedback.explanation)}</p>` : opinionAnswer ? `<p class="feedback-copy">Your answer was recorded and didn’t affect your score.</p>` : `<p class="feedback-copy">The correct answer is highlighted above. Ready for the next question?</p>`}
               <div class="feedback-actions">
                 ${feedback.completed ? `<button class="primary-button" type="button" data-action="show-results"><span>View Results</span><span class="button-arrow" aria-hidden="true">→</span></button>` :
                   feedback.nextQuestion ? `<button class="primary-button" type="button" data-action="next-question"><span>Next Question</span><span class="button-arrow" aria-hidden="true">→</span></button>` :
@@ -291,29 +297,39 @@ function renderLeaderboard() {
 function renderResults() {
   const result = state.completion || {};
   const category = state.quizzes.find((quiz) => quiz.category === result.category);
+  const isSurvey = isOpinionSurvey(result.category);
   const score = Number(result.score) || 0;
   const total = Number(result.totalQuestions) || state.totalQuestions || 0;
   const scoreTotal = Number(result.scoreTotal ?? total);
-  const perfectRound = scoreTotal > 0 && score === scoreTotal;
+  const perfectRound = !isSurvey && scoreTotal > 0 && score === scoreTotal;
   app.innerHTML = shell(`
     <main class="results-layout reveal">
       <section class="results-hero" aria-labelledby="results-title">
         <div class="results-copy">
           <div class="eyebrow"><span class="eyebrow-line"></span> Survey complete · ${escapeHTML(result.playerName || state.playerName)}</div>
-          <h1 id="results-title">${perfectRound ? "Perfect Score!" : "Great Effort!"}</h1>
-          <p>${perfectRound ? "You answered all scored questions correctly! Excellent work." : "You've completed the survey. Review your results below."}</p>
-          <div class="result-stats">
+          <h1 id="results-title">${isSurvey ? "Thanks for sharing!" : perfectRound ? "Perfect Score!" : "Great Effort!"}</h1>
+          <p>${isSurvey ? "Your Club Carnival responses have been recorded. There are no right or wrong answers." : perfectRound ? "You answered all scored questions correctly! Excellent work." : "You've completed the survey. Review your results below."}</p>
+          ${isSurvey ? "" : `<div class="result-stats">
             <span class="result-stat"><strong>${escapeHTML(category?.title || result.category)}</strong> category</span>
             <span class="result-stat"><strong>${escapeHTML(String(result.difficulty || state.difficulty))}</strong> pace</span>
             <span class="result-stat"><strong>${escapeHTML(formatDuration(result.durationSeconds))}</strong> elapsed</span>
-          </div>
+          </div>`}
         </div>
-        <div class="score-stamp" aria-label="Score ${score} out of ${scoreTotal}">
+        ${isSurvey ? "" : `<div class="score-stamp" aria-label="Score ${score} out of ${scoreTotal}">
           <span class="score-number">${escapeHTML(score)}<span style="font-size:.52em">/${escapeHTML(scoreTotal)}</span></span>
           <span class="score-caption">your score</span>
-        </div>
+        </div>`}
       </section>
-      <section class="leaderboard-section" aria-labelledby="leaderboard-title">
+      ${isSurvey ? `
+      <section class="leaderboard-section" aria-labelledby="survey-thanks-title">
+        <div class="leaderboard-heading">
+          <div><div class="eyebrow"><span class="eyebrow-line"></span> Club Carnival</div><h2 id="survey-thanks-title">Thank you</h2></div>
+        </div>
+        <p class="feedback-copy">Your feedback will help us plan the carnival.</p>
+        <div class="leaderboard-footer">
+          <button class="primary-button" type="button" data-action="back-to-setup"><span>Done</span><span class="button-arrow" aria-hidden="true">→</span></button>
+        </div>
+      </section>` : `<section class="leaderboard-section" aria-labelledby="leaderboard-title">
         <div class="leaderboard-heading">
           <div><div class="eyebrow"><span class="eyebrow-line"></span> Results Summary</div><h2 id="leaderboard-title">Survey Leaderboard</h2></div>
           <div class="leaderboard-category">${escapeHTML(category?.title || result.category)}</div>
@@ -323,7 +339,7 @@ function renderResults() {
           <p>Compare your results with others.</p>
           <button class="primary-button" type="button" data-action="back-to-setup"><span>Take Another Survey</span><span class="button-arrow" aria-hidden="true">→</span></button>
         </div>
-      </section>
+      </section>`}
     </main>`, "results");
 }
 
@@ -464,6 +480,12 @@ async function loadLeaderboard() {
 function showResults() {
   if (!state.completion) return;
   state.screen = "results";
+  if (isOpinionSurvey(state.completion.category)) {
+    state.leaderboard = [];
+    state.leaderboardStatus = "loaded";
+    render();
+    return;
+  }
   state.leaderboardStatus = "loading";
   render();
   loadLeaderboard();
@@ -487,6 +509,8 @@ app.addEventListener("change", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement)) return;
   if (target.name === "category") {
+    const nameField = app.querySelector("#player-name");
+    if (nameField) state.playerName = nameField.value;
     state.selectedCategory = target.value;
     app.querySelectorAll(".category-choice").forEach((choice) => {
       const radio = choice.querySelector('input[name="category"]');
@@ -513,6 +537,7 @@ app.addEventListener("change", (event) => {
     }
     const button = app.querySelector(".start-button");
     if (button) button.disabled = state.starting || !state.selectedCategory;
+    renderSetup();
   } else if (target.name === "difficulty") {
     state.difficulty = target.value;
   } else if (target.name === "answer") {

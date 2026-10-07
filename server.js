@@ -30,7 +30,7 @@ function publicQuestion(row) {
     difficulty: row.difficulty,
     prompt: row.prompt,
     options: row.options,
-    isScored: row.is_scored,
+    isScored: row.category_id === "club_carnival" ? false : row.is_scored,
   };
 }
 
@@ -153,7 +153,7 @@ app.post("/api/sessions/:sessionId/answer", async (req, res, next) => {
     transactionOpen = true;
 
     const sessionResult = await client.query(
-      `SELECT id, question_ids, current_index, score, total_questions, status, started_at
+      `SELECT id, category_id, question_ids, current_index, score, total_questions, status, started_at
        FROM quiz_sessions
        WHERE id = $1
        FOR UPDATE`,
@@ -178,14 +178,15 @@ app.post("/api/sessions/:sessionId/answer", async (req, res, next) => {
     }
 
     const questionResult = await client.query(
-      "SELECT correct_index, is_scored, explanation FROM quiz_questions WHERE id = $1",
+      "SELECT category_id, correct_index, is_scored, explanation FROM quiz_questions WHERE id = $1",
       [questionId],
     );
     if (questionResult.rowCount === 0) {
       throw new Error("A quiz session references a missing question.");
     }
     const question = questionResult.rows[0];
-    const isScored = question.is_scored;
+    const isSurvey = session.category_id === "club_carnival";
+    const isScored = !isSurvey && question.is_scored;
     const correct = isScored ? selectedIndex === question.correct_index : null;
     const pointsAwarded = correct === true ? 1 : 0;
     const completed = session.current_index + 1 >= session.total_questions;
@@ -199,7 +200,7 @@ app.post("/api/sessions/:sessionId/answer", async (req, res, next) => {
     const updatedResult = await client.query(
       `UPDATE quiz_sessions
        SET current_index = current_index + 1,
-           score = score + $2,
+           score = CASE WHEN $5 THEN 0 ELSE score + $2 END,
            answers = answers || $3::jsonb,
            status = $4,
            duration_seconds = CASE
@@ -210,7 +211,7 @@ app.post("/api/sessions/:sessionId/answer", async (req, res, next) => {
            completed_at = CASE WHEN $4 = 'completed' THEN NOW() ELSE NULL END
        WHERE id = $1
        RETURNING score, current_index, total_questions, duration_seconds`,
-      [sessionId, pointsAwarded, answer, completed ? "completed" : "in_progress"],
+      [sessionId, pointsAwarded, answer, completed ? "completed" : "in_progress", isSurvey],
     );
     const updated = updatedResult.rows[0];
     let nextQuestion = null;
@@ -229,7 +230,8 @@ app.post("/api/sessions/:sessionId/answer", async (req, res, next) => {
     const scoreTotalResult = await client.query(
       `SELECT COUNT(*)::int AS score_total
        FROM quiz_questions
-       WHERE id = ANY($1::int[]) AND is_scored = TRUE`,
+       WHERE id = ANY($1::int[]) AND is_scored = TRUE
+         AND category_id <> 'club_carnival'`,
       [session.question_ids],
     );
 
@@ -271,7 +273,7 @@ app.get("/api/leaderboard", async (req, res, next) => {
                 WHERE q.id = ANY(s.question_ids) AND q.is_scored) AS "scoreTotal",
                s.duration_seconds AS "durationSeconds", s.completed_at AS "completedAt"
         FROM quiz_sessions s
-        WHERE s.status = 'completed'
+        WHERE s.status = 'completed' AND s.category_id <> 'club_carnival'
         ORDER BY s.score DESC, s.duration_seconds ASC, s.completed_at DESC
         LIMIT 10
       `);
@@ -285,6 +287,9 @@ app.get("/api/leaderboard", async (req, res, next) => {
       );
       if (categoryResult.rowCount === 0) {
         return res.status(400).json({ error: "Choose a valid quiz category." });
+      }
+      if (category === "club_carnival") {
+        return res.json({ entries: [] });
       }
       result = await pool.query(
         `SELECT s.player_name AS "playerName", s.category_id AS category, s.difficulty,

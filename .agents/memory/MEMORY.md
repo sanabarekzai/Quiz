@@ -1,0 +1,1 @@
+- [Club Carnival survey intent](club-carnival-survey.md) — Treat every answer as an opinion response, never as right or wrong.

@@ -64,6 +64,4 @@ ON CONFLICT (category_id, difficulty, prompt) DO NOTHING;
 
 UPDATE quiz_questions
 SET is_scored = FALSE
-WHERE category_id = 'club_carnival'
-  AND difficulty = 'easy'
-  AND prompt = 'How do you like the club so far?';
+WHERE category_id = 'club_carnival';
