@@ -1024,3 +1024,104 @@ body {
   .question-card { border-bottom-left-radius: 11px; }
   .results-hero { border-bottom-left-radius: 11px; }
 }
+
+
+/* Auth Modal Styles */
+.auth-bar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-left: auto;
+}
+
+.welcome-message {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.login-button, .signup-button {
+  padding: 8px 14px;
+  font-size: 11px;
+}
+
+.logout-button {
+  color: var(--danger);
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.modal-content {
+  width: min(400px, 90%);
+  padding: 24px;
+  border-radius: 8px;
+  background: var(--card);
+  box-shadow: 0 18px 45px rgba(48, 49, 70, 0.2);
+}
+
+.modal-content h2 {
+  margin: 0 0 16px;
+  font-family: var(--display);
+  font-size: 19px;
+  color: var(--ink);
+  text-align: center;
+}
+
+.form-group {
+  margin-bottom: 14px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.form-group input {
+  width: 100%;
+  height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: rgba(255, 253, 247, 0.76);
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: var(--indigo);
+  box-shadow: 0 0 0 2px rgba(53, 62, 131, 0.15);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.modal-actions .secondary-button {
+  min-height: 38px;
+  padding: 0 14px;
+}
+
+.modal-actions .primary-button {
+  min-height: 38px;
+}
+
+.auth-error {
+  margin-bottom: 14px;
+  padding: 10px;
+  border-radius: 5px;
+}

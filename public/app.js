@@ -2,6 +2,21 @@ const app = document.querySelector("#app");
 
 const state = {
   screen: "setup",
+  user: null,
+  authModal: "none", // "none", "login", "register"
+  authError: "",
+  authLoading: false,
+  registerData: {
+    username: "",
+    password: "",
+    firstName: "",
+    lastName: "",
+    displayName: "",
+  },
+  loginData: {
+    username: "",
+    password: "",
+  },
   quizzesStatus: "loading",
   quizzes: [],
   selectedCategory: "",
@@ -57,6 +72,7 @@ async function api(path, options = {}) {
       ...(options.body ? { "Content-Type": "application/json" } : {}),
       ...options.headers,
     },
+    credentials: "include",
   });
   let payload = null;
   try {
@@ -66,13 +82,136 @@ async function api(path, options = {}) {
   }
   if (!response.ok) {
     const message = payload && (payload.message || payload.error);
-    throw new Error(message || `The request didn’t work (${response.status}). Please try again.`);
+    throw new Error(message || `The request didn\u2019t work (${response.status}). Please try again.`);
   }
   return payload;
 }
 
+// Auth functions
+async function registerUser() {
+  const { username, password, firstName, lastName, displayName } = state.registerData;
+  if (!username || !password || !firstName || !lastName) {
+    state.authError = "All fields are required.";
+    render();
+    return;
+  }
+  if (username.length < 5) {
+    state.authError = "Username must be at least 5 characters.";
+    render();
+    return;
+  }
+  if (firstName.length < 5 || lastName.length < 5) {
+    state.authError = "First and last name must be at least 5 characters.";
+    render();
+    return;
+  }
+  state.authLoading = true;
+  state.authError = "";
+  render();
+  try {
+    const result = await api("/api/register", {
+      method: "POST",
+      body: JSON.stringify({
+        username,
+        password,
+        firstName,
+        lastName,
+        displayName: displayName || `${firstName} ${lastName}`,
+      }),
+    });
+    state.user = result.user;
+    state.authModal = "none";
+    state.authLoading = false;
+    state.registerData = { username: "", password: "", firstName: "", lastName: "", displayName: "" };
+    render();
+  } catch (error) {
+    state.authError = error.message || "Registration failed.";
+    state.authLoading = false;
+    render();
+  }
+}
+
+async function loginUser() {
+  const { username, password } = state.loginData;
+  if (!username || !password) {
+    state.authError = "Username and password are required.";
+    render();
+    return;
+  }
+  state.authLoading = true;
+  state.authError = "";
+  render();
+  try {
+    const result = await api("/api/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    });
+    state.user = result.user;
+    state.authModal = "none";
+    state.authLoading = false;
+    state.loginData = { username: "", password: "" };
+    render();
+  } catch (error) {
+    state.authError = error.message || "Login failed.";
+    state.authLoading = false;
+    render();
+  }
+}
+
+async function logoutUser() {
+  try {
+    await api("/api/logout", { method: "POST" });
+    state.user = null;
+    render();
+  } catch (error) {
+    console.error("Logout error:", error);
+  }
+}
+
+async function checkAuthStatus() {
+  try {
+    const result = await api("/api/me");
+    state.user = result.user;
+    render();
+  } catch (error) {
+    state.user = null;
+    render();
+  }
+}
+
+function openAuthModal(type) {
+  state.authModal = type;
+  state.authError = "";
+  render();
+}
+
+function closeAuthModal() {
+  state.authModal = "none";
+  state.authError = "";
+  render();
+}
+
+function updateRegisterField(field, value) {
+  state.registerData[field] = value;
+  render();
+}
+
+function updateLoginField(field, value) {
+  state.loginData[field] = value;
+  render();
+}
+
 function shell(content, screenName = "setup") {
   const sectionLabel = screenName === "quiz" ? "A round in progress" : screenName === "results" ? "Your round, wrapped up" : "A quick brain break";
+  const authBar = state.user ? `
+    <div class="auth-bar">
+      <span class="welcome-message">Welcome, ${escapeHTML(state.user.displayName)}</span>
+      <button class="text-button logout-button" type="button" data-action="logout">Logout</button>
+    </div>` : `
+    <div class="auth-bar">
+      <button class="text-button login-button" type="button" data-action="open-login">Login</button>
+      <button class="primary-button signup-button" type="button" data-action="open-register">Sign Up</button>
+    </div>`;
   return `
     <div class="app-frame">
       <header class="topbar">
@@ -80,13 +219,81 @@ function shell(content, screenName = "setup") {
           <img class="brand-logo" src="/study-smart-logo.jpg" alt="Study Smart Club Survey" width="520" height="375">
         </a>
         <div class="top-note"><span class="top-note-mark" aria-hidden="true"></span>Study Smart Club Survey</div>
+        ${authBar}
       </header>
       ${content}
+      ${renderAuthModal()}
       <footer class="app-footer">
         <span>Study Smart Club Survey</span>
         <span>Track your knowledge progress</span>
       </footer>
     </div>`;
+}
+
+function renderAuthModal() {
+  if (state.authModal === "none") return "";
+  
+  if (state.authModal === "register") {
+    return `
+      <div class="modal-overlay" data-modal="auth">
+        <div class="modal-content auth-modal">
+          <h2>Create an Account</h2>
+          ${state.authError ? `<div class="notice auth-error" role="alert"><span class="notice-symbol" aria-hidden="true">!</span><div><strong>Error</strong><p>${escapeHTML(state.authError)}</p></div></div>` : ""}
+          <form id="register-form" onsubmit="event.preventDefault(); registerUser();">
+            <div class="form-group">
+              <label for="reg-username">Username (min 5 chars)</label>
+              <input type="text" id="reg-username" value="${escapeHTML(state.registerData.username)}" oninput="updateRegisterField('username', this.value)" required minlength="5">
+            </div>
+            <div class="form-group">
+              <label for="reg-password">Password</label>
+              <input type="password" id="reg-password" value="${escapeHTML(state.registerData.password)}" oninput="updateRegisterField('password', this.value)" required>
+            </div>
+            <div class="form-group">
+              <label for="reg-firstName">First Name (min 5 chars)</label>
+              <input type="text" id="reg-firstName" value="${escapeHTML(state.registerData.firstName)}" oninput="updateRegisterField('firstName', this.value)" required minlength="5">
+            </div>
+            <div class="form-group">
+              <label for="reg-lastName">Last Name (min 5 chars)</label>
+              <input type="text" id="reg-lastName" value="${escapeHTML(state.registerData.lastName)}" oninput="updateRegisterField('lastName', this.value)" required minlength="5">
+            </div>
+            <div class="form-group">
+              <label for="reg-displayName">Display Name (optional)</label>
+              <input type="text" id="reg-displayName" value="${escapeHTML(state.registerData.displayName)}" oninput="updateRegisterField('displayName', this.value)" placeholder="${escapeHTML(state.registerData.firstName)} ${escapeHTML(state.registerData.lastName)}">
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="secondary-button" onclick="closeAuthModal()">Cancel</button>
+              <button type="submit" class="primary-button" ${state.authLoading ? "disabled" : ""}>${state.authLoading ? "Creating..." : "Sign Up"}</button>
+            </div>
+          </form>
+        </div>
+      </div>`;
+  }
+  
+  if (state.authModal === "login") {
+    return `
+      <div class="modal-overlay" data-modal="auth">
+        <div class="modal-content auth-modal">
+          <h2>Login</h2>
+          ${state.authError ? `<div class="notice auth-error" role="alert"><span class="notice-symbol" aria-hidden="true">!</span><div><strong>Error</strong><p>${escapeHTML(state.authError)}</p></div></div>` : ""}
+          <form id="login-form" onsubmit="event.preventDefault(); loginUser();">
+            <div class="form-group">
+              <label for="login-username">Username</label>
+              <input type="text" id="login-username" value="${escapeHTML(state.loginData.username)}" oninput="updateLoginField('username', this.value)" required>
+            </div>
+            <div class="form-group">
+              <label for="login-password">Password</label>
+              <input type="password" id="login-password" value="${escapeHTML(state.loginData.password)}" oninput="updateLoginField('password', this.value)" required>
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="secondary-button" onclick="closeAuthModal()">Cancel</button>
+              <button type="submit" class="primary-button" ${state.authLoading ? "disabled" : ""}>${state.authLoading ? "Logging in..." : "Login"}</button>
+            </div>
+          </form>
+        </div>
+      </div>`;
+  }
+  
+  return "";
 }
 
 function renderSetup() {
@@ -576,7 +783,16 @@ app.addEventListener("click", (event) => {
     state.answerError = "";
     render();
   }
+  if (action === "open-login") openAuthModal("login");
+  if (action === "open-register") openAuthModal("register");
+  if (action === "logout") logoutUser();
 });
+
+// Initialize Google Sign-In when the page loads
+window.addEventListener("load", initGoogleSignIn);
+
+// Check auth status on page load
+checkAuthStatus();
 
 render();
 loadQuizzes();
