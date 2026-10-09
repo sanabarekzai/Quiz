@@ -1,3 +1,16 @@
+CREATE TABLE IF NOT EXISTS users (
+  id SERIAL PRIMARY KEY,
+  username TEXT NOT NULL UNIQUE CHECK (char_length(username) >= 5),
+  password_hash TEXT,
+  first_name TEXT NOT NULL CHECK (char_length(first_name) >= 5),
+  last_name TEXT NOT NULL CHECK (char_length(last_name) >= 5),
+  display_name TEXT NOT NULL,
+  google_id TEXT UNIQUE,
+  role TEXT NOT NULL DEFAULT 'player' CHECK (role IN ('player', 'admin')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS quiz_categories (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
@@ -23,6 +36,7 @@ ALTER TABLE quiz_questions
 
 CREATE TABLE IF NOT EXISTS quiz_sessions (
   id UUID PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id),
   player_name TEXT NOT NULL CHECK (char_length(player_name) BETWEEN 1 AND 24),
   category_id TEXT NOT NULL REFERENCES quiz_categories(id),
   difficulty TEXT NOT NULL CHECK (difficulty IN ('easy', 'medium', 'hard')),
