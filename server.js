@@ -2,10 +2,17 @@ const express = require("express");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 const { Pool } = require("pg");
+const bcrypt = require("bcrypt");
+const session = require("express-session");
+const cookieParser = require("cookie-parser");
+const { OAuth2Client } = require("google-auth-library");
 
 const PORT = Number(process.env.PORT || 5000);
 const QUESTIONS_PER_GAME = 5;
 const DIFFICULTIES = new Set(["easy", "medium", "hard"]);
+const SALT_ROUNDS = 12;
+const SESSION_SECRET = process.env.SESSION_SECRET || randomUUID();
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is required. Connect the Replit PostgreSQL database before starting the app.");
@@ -18,10 +25,31 @@ const pool = new Pool({
   connectionTimeoutMillis: 5_000,
 });
 
+const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
+
 const app = express();
 app.disable("x-powered-by");
 app.use(express.json({ limit: "16kb" }));
 app.use(express.static(path.join(__dirname, "public")));
+app.use(cookieParser());
+app.use(session({
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    maxAge: null, // Session lasts until logout
+  },
+}));
+
+// Middleware to check if user is authenticated
+function requireAuth(req, res, next) {
+  if (!req.session.userId) {
+    return res.status(401).json({ error: "Unauthorized. Please log in." });
+  }
+  next();
+}
 
 function publicQuestion(row) {
   return {
@@ -53,6 +81,227 @@ app.get("/api/health", async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+// Helper function to get user by ID
+async function getUserById(userId) {
+  const result = await pool.query("SELECT * FROM users WHERE id = $1", [userId]);
+  return result.rows[0];
+}
+
+// Helper function to get user by username
+async function getUserByUsername(username) {
+  const result = await pool.query("SELECT * FROM users WHERE username = $1", [username]);
+  return result.rows[0];
+}
+
+// Helper function to get user by Google ID
+async function getUserByGoogleId(googleId) {
+  const result = await pool.query("SELECT * FROM users WHERE google_id = $1", [googleId]);
+  return result.rows[0];
+}
+
+// Helper function to create a new user
+async function createUser({ username, password, firstName, lastName, displayName, googleId, role = "player" }) {
+  let passwordHash = null;
+  if (password) {
+    passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+  }
+  
+  const result = await pool.query(
+    `INSERT INTO users (username, password_hash, first_name, last_name, display_name, google_id, role)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     RETURNING *`,
+    [username, passwordHash, firstName, lastName, displayName, googleId, role]
+  );
+  return result.rows[0];
+}
+
+// Register a new user (email/password)
+app.post("/api/register", async (req, res, next) => {
+  const { username, password, firstName, lastName, displayName } = req.body || {};
+  
+  if (!username || !password || !firstName || !lastName) {
+    return res.status(400).json({ 
+      error: "Username, password, first name, and last name are required." 
+    });
+  }
+  
+  if (username.length < 5) {
+    return res.status(400).json({ 
+      error: "Username must be at least 5 characters long." 
+    });
+  }
+  
+  if (firstName.length < 5 || lastName.length < 5) {
+    return res.status(400).json({ 
+      error: "First name and last name must be at least 5 characters long." 
+    });
+  }
+  
+  try {
+    const existingUser = await getUserByUsername(username);
+    if (existingUser) {
+      return res.status(400).json({ error: "Username already exists." });
+    }
+    
+    const user = await createUser({
+      username,
+      password,
+      firstName,
+      lastName,
+      displayName: displayName || `${firstName} ${lastName}`,
+    });
+    
+    req.session.userId = user.id;
+    req.session.save();
+    
+    res.status(201).json({
+      user: {
+        id: user.id,
+        username: user.username,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        displayName: user.display_name,
+        role: user.role,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Login (email/password)
+app.post("/api/login", async (req, res, next) => {
+  const { username, password } = req.body || {};
+  
+  if (!username || !password) {
+    return res.status(400).json({ error: "Username and password are required." });
+  }
+  
+  try {
+    const user = await getUserByUsername(username);
+    if (!user) {
+      return res.status(401).json({ error: "Invalid username or password." });
+    }
+    
+    if (!user.password_hash) {
+      return res.status(400).json({ 
+        error: "This account uses Google Sign-In. Please use the Google option." 
+      });
+    }
+    
+    const passwordMatch = await bcrypt.compare(password, user.password_hash);
+    if (!passwordMatch) {
+      return res.status(401).json({ error: "Invalid username or password." });
+    }
+    
+    req.session.userId = user.id;
+    req.session.save();
+    
+    res.json({
+      user: {
+        id: user.id,
+        username: user.username,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        displayName: user.display_name,
+        role: user.role,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Google OAuth callback
+app.post("/api/auth/google", async (req, res, next) => {
+  const { token } = req.body || {};
+  
+  if (!token || !googleClient) {
+    return res.status(400).json({ 
+      error: "Google authentication is not configured or token is missing." 
+    });
+  }
+  
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken: token,
+      audience: GOOGLE_CLIENT_ID,
+    });
+    
+    const payload = ticket.getPayload();
+    const googleId = payload.sub;
+    const email = payload.email;
+    const firstName = payload.given_name || "";
+    const lastName = payload.family_name || "";
+    const displayName = payload.name || `${firstName} ${lastName}`;
+    
+    let user = await getUserByGoogleId(googleId);
+    
+    if (!user) {
+      const username = email.split("@")[0] || `google_${googleId.substring(0, 8)}`;
+      user = await createUser({
+        username,
+        firstName: firstName || username,
+        lastName: lastName || "User",
+        displayName,
+        googleId,
+      });
+    }
+    
+    req.session.userId = user.id;
+    req.session.save();
+    
+    res.json({
+      user: {
+        id: user.id,
+        username: user.username,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        displayName: user.display_name,
+        role: user.role,
+      },
+    });
+  } catch (error) {
+    console.error("Google auth error:", error);
+    res.status(401).json({ error: "Google authentication failed." });
+  }
+});
+
+// Get current user
+app.get("/api/me", requireAuth, async (req, res, next) => {
+  try {
+    const user = await getUserById(req.session.userId);
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+    
+    res.json({
+      user: {
+        id: user.id,
+        username: user.username,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        displayName: user.display_name,
+        role: user.role,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Logout
+app.post("/api/logout", (req, res) => {
+  req.session.destroy((err) => {
+    if (err) {
+      console.error("Logout error:", err);
+      return res.status(500).json({ error: "Could not log out." });
+    }
+    res.clearCookie("connect.sid");
+    res.json({ message: "Logged out successfully." });
+  });
 });
 
 app.get("/api/quizzes", async (req, res, next) => {
