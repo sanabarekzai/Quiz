@@ -307,21 +307,100 @@ app.post("/api/logout", (req, res) => {
 app.get("/api/quizzes", async (req, res, next) => {
   try {
     const result = await pool.query(`
-      SELECT c.id AS category, c.title, c.description, COUNT(q.id)::int AS "questionCount",
-             jsonb_build_object(
-               'easy', COUNT(q.id) FILTER (WHERE q.difficulty = 'easy') >= $1,
-               'medium', COUNT(q.id) FILTER (WHERE q.difficulty = 'medium') >= $1,
-               'hard', COUNT(q.id) FILTER (WHERE q.difficulty = 'hard') >= $1
-             ) AS "availableDifficulties"
+      SELECT c.id AS category, c.title, c.description, COUNT(q.id)::int AS "questionCount"
       FROM quiz_categories c
-      LEFT JOIN quiz_questions q ON (
-        (c.id = 'mixed' AND q.category_id <> 'club_carnival')
-        OR c.id = q.category_id
-      )
+      LEFT JOIN quiz_questions q ON c.id = q.category_id
       GROUP BY c.id, c.title, c.description, c.sort_order
       ORDER BY c.sort_order, c.title
-    `, [QUESTIONS_PER_GAME]);
+    `);
     res.json({ quizzes: result.rows });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/quizzes/:id", async (req, res, next) => {
+  const { id } = req.params;
+  try {
+    const categoryResult = await pool.query(
+      "SELECT id, title, description FROM quiz_categories WHERE id = $1",
+      [id]
+    );
+    if (categoryResult.rowCount === 0) {
+      return res.status(404).json({ error: "Quiz not found." });
+    }
+
+    const questionsResult = await pool.query(
+      `SELECT id, category_id, difficulty, prompt, options, is_scored
+       FROM quiz_questions
+       WHERE category_id = $1
+       ORDER BY random()`,
+      [id]
+    );
+
+    const questions = questionsResult.rows.map((row) => publicQuestion(row));
+    res.json({
+      quiz: categoryResult.rows[0],
+      questions,
+      totalQuestions: questions.length,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
+  const { id } = req.params;
+  const { answers } = req.body || {};
+
+  if (!Array.isArray(answers)) {
+    return res.status(400).json({ error: "Answers must be an array." });
+  }
+
+  try {
+    const questionsResult = await pool.query(
+      `SELECT id, correct_index, is_scored
+       FROM quiz_questions
+       WHERE category_id = $1
+       ORDER BY id`,
+      [id]
+    );
+
+    if (questionsResult.rowCount === 0) {
+      return res.status(404).json({ error: "Quiz not found or has no questions." });
+    }
+
+    const questions = questionsResult.rows;
+    let score = 0;
+    const results = [];
+
+    for (let i = 0; i < Math.min(answers.length, questions.length); i++) {
+      const question = questions[i];
+      const answer = answers[i];
+      const isCorrect = answer !== null && answer !== undefined && answer === question.correct_index;
+      const isScored = question.is_scored;
+
+      if (isScored && isCorrect) {
+        score++;
+      }
+
+      results.push({
+        questionId: question.id,
+        selectedIndex: answer,
+        correctIndex: question.correct_index,
+        isCorrect,
+        isScored,
+      });
+    }
+
+    const percentage = Math.round((score / questions.length) * 100);
+
+    res.json({
+      score,
+      totalQuestions: questions.length,
+      percentage,
+      results,
+    });
   } catch (error) {
     next(error);
   }
