@@ -788,9 +788,6 @@ app.addEventListener("click", (event) => {
   if (action === "logout") logoutUser();
 });
 
-// Initialize Google Sign-In when the page loads
-window.addEventListener("load", initGoogleSignIn);
-
 // Check auth status on page load
 checkAuthStatus();
 
