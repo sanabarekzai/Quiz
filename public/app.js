@@ -74,8 +74,15 @@ async function api(path, options = {}) {
 }
 
 // Auth functions
-async function registerUser() {
-  const { username, password, firstName, lastName, displayName } = state.registerData;
+async function registerUser(form) {
+  if (!(form instanceof HTMLFormElement)) return;
+  const formData = new FormData(form);
+  const username = String(formData.get("username") || "");
+  const password = String(formData.get("password") || "");
+  const firstName = String(formData.get("firstName") || "");
+  const lastName = String(formData.get("lastName") || "");
+  const displayName = String(formData.get("displayName") || "");
+  state.registerData = { username, password, firstName, lastName, displayName };
   if (!username || !password || !firstName || !lastName) {
     state.authError = "All fields are required.";
     render();
@@ -117,8 +124,12 @@ async function registerUser() {
   }
 }
 
-async function loginUser() {
-  const { username, password } = state.loginData;
+async function loginUser(form) {
+  if (!(form instanceof HTMLFormElement)) return;
+  const formData = new FormData(form);
+  const username = String(formData.get("username") || "");
+  const password = String(formData.get("password") || "");
+  state.loginData = { username, password };
   if (!username || !password) {
     state.authError = "Username and password are required.";
     render();
@@ -177,14 +188,6 @@ function closeAuthModal() {
   render();
 }
 
-function updateRegisterField(field, value) {
-  state.registerData[field] = value;
-}
-
-function updateLoginField(field, value) {
-  state.loginData[field] = value;
-}
-
 function shell(content, screenName = "setup") {
   const sectionLabel = screenName === "quiz" ? "A round in progress" : screenName === "results" ? "Your round, wrapped up" : "A quick brain break";
   const authBar = state.user ? `
@@ -223,26 +226,26 @@ function renderAuthModal() {
         <div class="modal-content auth-modal">
           <h2>Create an Account</h2>
           ${state.authError ? `<div class="notice auth-error" role="alert"><span class="notice-symbol" aria-hidden="true">!</span><div><strong>Error</strong><p>${escapeHTML(state.authError)}</p></div></div>` : ""}
-          <form id="register-form" onsubmit="event.preventDefault(); registerUser();">
+          <form id="register-form">
             <div class="form-group">
               <label for="reg-username">Username (min 5 chars)</label>
-              <input type="text" id="reg-username" value="${escapeHTML(state.registerData.username)}" oninput="updateRegisterField('username', this.value)" required minlength="5">
+              <input type="text" id="reg-username" name="username" value="${escapeHTML(state.registerData.username)}" required minlength="5" autocomplete="username">
             </div>
             <div class="form-group">
               <label for="reg-password">Password</label>
-              <input type="password" id="reg-password" value="${escapeHTML(state.registerData.password)}" oninput="updateRegisterField('password', this.value)" required>
+              <input type="password" id="reg-password" name="password" value="${escapeHTML(state.registerData.password)}" required autocomplete="new-password">
             </div>
             <div class="form-group">
               <label for="reg-firstName">First Name (min 5 chars)</label>
-              <input type="text" id="reg-firstName" value="${escapeHTML(state.registerData.firstName)}" oninput="updateRegisterField('firstName', this.value)" required minlength="5">
+              <input type="text" id="reg-firstName" name="firstName" value="${escapeHTML(state.registerData.firstName)}" required minlength="5" autocomplete="given-name">
             </div>
             <div class="form-group">
               <label for="reg-lastName">Last Name (min 5 chars)</label>
-              <input type="text" id="reg-lastName" value="${escapeHTML(state.registerData.lastName)}" oninput="updateRegisterField('lastName', this.value)" required minlength="5">
+              <input type="text" id="reg-lastName" name="lastName" value="${escapeHTML(state.registerData.lastName)}" required minlength="5" autocomplete="family-name">
             </div>
             <div class="form-group">
               <label for="reg-displayName">Display Name (optional)</label>
-              <input type="text" id="reg-displayName" value="${escapeHTML(state.registerData.displayName)}" oninput="updateRegisterField('displayName', this.value)" placeholder="${escapeHTML(state.registerData.firstName)} ${escapeHTML(state.registerData.lastName)}">
+              <input type="text" id="reg-displayName" name="displayName" value="${escapeHTML(state.registerData.displayName)}" placeholder="${escapeHTML(state.registerData.firstName)} ${escapeHTML(state.registerData.lastName)}" autocomplete="name">
             </div>
             <div class="modal-actions">
               <button type="button" class="secondary-button" onclick="closeAuthModal()">Cancel</button>
@@ -259,14 +262,14 @@ function renderAuthModal() {
         <div class="modal-content auth-modal">
           <h2>Login</h2>
           ${state.authError ? `<div class="notice auth-error" role="alert"><span class="notice-symbol" aria-hidden="true">!</span><div><strong>Error</strong><p>${escapeHTML(state.authError)}</p></div></div>` : ""}
-          <form id="login-form" onsubmit="event.preventDefault(); loginUser();">
+          <form id="login-form">
             <div class="form-group">
               <label for="login-username">Username</label>
-              <input type="text" id="login-username" value="${escapeHTML(state.loginData.username)}" oninput="updateLoginField('username', this.value)" required>
+              <input type="text" id="login-username" name="username" value="${escapeHTML(state.loginData.username)}" required autocomplete="username">
             </div>
             <div class="form-group">
               <label for="login-password">Password</label>
-              <input type="password" id="login-password" value="${escapeHTML(state.loginData.password)}" oninput="updateLoginField('password', this.value)" required>
+              <input type="password" id="login-password" name="password" value="${escapeHTML(state.loginData.password)}" required autocomplete="current-password">
             </div>
             <div class="modal-actions">
               <button type="button" class="secondary-button" onclick="closeAuthModal()">Cancel</button>
@@ -656,6 +659,8 @@ app.addEventListener("submit", (event) => {
   event.preventDefault();
   const form = event.target;
   if (!(form instanceof HTMLFormElement)) return;
+  if (form.id === "register-form") registerUser(form);
+  if (form.id === "login-form") loginUser(form);
   if (form.id === "setup-form") startQuiz(form);
   if (form.id === "answer-form" && state.currentQuestionIndex === state.questions.length - 1) submitQuiz();
 });
