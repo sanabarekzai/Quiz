@@ -193,12 +193,10 @@ function closeAuthModal() {
 
 function updateRegisterField(field, value) {
   state.registerData[field] = value;
-  render();
 }
 
 function updateLoginField(field, value) {
   state.loginData[field] = value;
-  render();
 }
 
 function shell(content, screenName = "setup") {
@@ -249,12 +247,12 @@ function renderAuthModal() {
               <input type="password" id="reg-password" value="${escapeHTML(state.registerData.password)}" oninput="updateRegisterField('password', this.value)" required>
             </div>
             <div class="form-group">
-              <label for="reg-firstName">First Name (min 5 chars)</label>
-              <input type="text" id="reg-firstName" value="${escapeHTML(state.registerData.firstName)}" oninput="updateRegisterField('firstName', this.value)" required minlength="5">
+              <label for="reg-firstName">First Name</label>
+              <input type="text" id="reg-firstName" value="${escapeHTML(state.registerData.firstName)}" oninput="updateRegisterField('firstName', this.value)" required>
             </div>
             <div class="form-group">
-              <label for="reg-lastName">Last Name (min 5 chars)</label>
-              <input type="text" id="reg-lastName" value="${escapeHTML(state.registerData.lastName)}" oninput="updateRegisterField('lastName', this.value)" required minlength="5">
+              <label for="reg-lastName">Last Name</label>
+              <input type="text" id="reg-lastName" value="${escapeHTML(state.registerData.lastName)}" oninput="updateRegisterField('lastName', this.value)" required>
             </div>
             <div class="form-group">
               <label for="reg-displayName">Display Name (optional)</label>
