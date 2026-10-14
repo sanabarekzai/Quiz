@@ -179,12 +179,10 @@ function closeAuthModal() {
 
 function updateRegisterField(field, value) {
   state.registerData[field] = value;
-  render();
 }
 
 function updateLoginField(field, value) {
   state.loginData[field] = value;
-  render();
 }
 
 function shell(content, screenName = "setup") {
