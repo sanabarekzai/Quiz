@@ -344,6 +344,114 @@ app.get("/api/quizzes/:id", async (req, res, next) => {
   }
 });
 
+function getWellnessFeedback(totalScore) {
+  if (totalScore >= 0 && totalScore <= 8) {
+    return {
+      tier: "Healthy",
+      feedback: "Generally doing well, with good coping skills and support.",
+      recommendation: "Keep up the great work! Maintain your healthy habits."
+    };
+  } else if (totalScore >= 9 && totalScore <= 17) {
+    return {
+      tier: "Mild concern",
+      feedback: "Some stress or struggles.",
+      recommendation: "Healthy habits and talking with someone can help."
+    };
+  } else if (totalScore >= 18 && totalScore <= 26) {
+    return {
+      tier: "Moderate concern",
+      feedback: "Noticeable difficulty.",
+      recommendation: "Reaching out to a counselor or trusted adult is recommended."
+    };
+  } else {
+    return {
+      tier: "High concern",
+      feedback: "Significant distress.",
+      recommendation: "Follow-up with a counselor or mental health professional is strongly recommended."
+    };
+  }
+}
+
+function getStudySkillsFeedback(totalScore) {
+  const maxScore = 30;
+  if (totalScore >= 26) {
+    return {
+      level: 5,
+      tier: "Study Master",
+      emoji: "🏆",
+      feedback: "You've built strong habits, know how you learn best, and bounce back from setbacks. Your biggest risk now is burnout, not procrastination.",
+      tips: [
+        "Schedule rest. Free time and hobbies are part of the plan, not a reward for finishing it.",
+        "Keep improving. Experiment with new methods and keep what works.",
+        "Help others. Mentoring a classmate strengthens your own understanding.",
+        "Set bigger goals. Think about long-term plans like college, scholarships, or skills you want to learn.",
+        "Watch for perfectionism. 'Done and good' often beats 'perfect and late.'"
+      ],
+      nextQuest: "Set a goal beyond grades, such as learning a new skill or leading a study group."
+    };
+  } else if (totalScore >= 20) {
+    return {
+      level: 4,
+      tier: "Focus Builder",
+      emoji: "🎯",
+      feedback: "You're organized and consistent. Now it's about studying smarter and protecting your energy.",
+      tips: [
+        "Try the Feynman technique. Explain a topic out loud as if teaching a younger student. Wherever you stumble is what to study next.",
+        "Make your own practice tests. Write questions, then swap with a friend.",
+        "Use deep-work blocks. Do 45 to 60 minutes with zero notifications for your hardest subject.",
+        "Guard your sleep. Good rest improves memory more than another late-night hour.",
+        "Study with others. Join or start a study group where everyone explains topics to each other."
+      ],
+      nextQuest: "Teach a classmate a concept you just learned."
+    };
+  } else if (totalScore >= 14) {
+    return {
+      level: 3,
+      tier: "Rising Planner",
+      emoji: "🌱",
+      feedback: "You have a foundation and some good habits. Your results are decent, but you slip when life gets busy. You're closer to the next level than you think.",
+      tips: [
+        "Time-block your week. Put study sessions in your calendar like they're appointments.",
+        "Plan your top 3 each day. Pick the three tasks that matter most, and do the hardest first.",
+        "Use spaced practice. Review material after 1 day, 3 days, and 7 days instead of cramming.",
+        "Fix your weak spots. List the topics you avoid, then give those the first slot in your session.",
+        "Do a weekly 10-minute review. Ask what worked, what didn't, and what you'll change."
+      ],
+      nextQuest: "Follow your schedule for 2 full weeks, including a busy one."
+    };
+  } else if (totalScore >= 8) {
+    return {
+      level: 2,
+      tier: "Last-Minute Legend",
+      emoji: "⏰",
+      feedback: "You can get things done under pressure, but it's stressful and your work isn't your best. You know how to perform, and now you need to learn how to prepare.",
+      tips: [
+        "Back-plan your deadlines. If a project is due on the 20th, set mini-deadlines on the 12th, 15th, and 18th.",
+        "Use the 'two-day rule.' Never skip a study session two days in a row.",
+        "Try Pomodoro. Work 25 minutes, break 5 minutes, and repeat. A timer makes a big task feel small.",
+        "Swap rereading for self-testing. Close the book and try to recall what you just read.",
+        "Reward yourself. Plan something fun after finishing, not before."
+      ],
+      nextQuest: "Start one assignment at least 3 days early."
+    };
+  } else {
+    return {
+      level: 1,
+      tier: "Snooze Button Survivor",
+      emoji: "🛏️",
+      feedback: "School feels overwhelming right now, and avoiding it feels easier than starting. That's common, and it's fixable. Habits are learned, not something you're born with.",
+      tips: [
+        "Use the 5-minute rule. Promise yourself you'll work for just 5 minutes. Starting is the hardest part, and you'll often keep going.",
+        "Pick one tiny habit. Don't overhaul your life. Choose one thing, like writing down your homework every day.",
+        "Remove temptations. Put your phone in another room before you study.",
+        "Make a 'start ritual.' Same spot, same snack or music, same first action every time.",
+        "Talk to someone. A teacher, counselor, or parent can help, and asking is a sign of strength."
+      ],
+      nextQuest: "Use a planner for 7 days in a row."
+    };
+  }
+}
+
 app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
   const { id } = req.params;
   const { answers } = req.body || {};
@@ -354,7 +462,7 @@ app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
 
   try {
     const questionsResult = await pool.query(
-      `SELECT id, correct_index, is_scored
+      `SELECT id, correct_index, is_scored, category_id
        FROM quiz_questions
        WHERE category_id = $1
        ORDER BY id`,
@@ -366,36 +474,95 @@ app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
     }
 
     const questions = questionsResult.rows;
+    const categoryId = questions[0].category_id;
     let score = 0;
     const results = [];
 
-    for (let i = 0; i < Math.min(answers.length, questions.length); i++) {
-      const question = questions[i];
-      const answer = answers[i];
-      const isCorrect = answer !== null && answer !== undefined && answer === question.correct_index;
-      const isScored = question.is_scored;
+    if (categoryId === 'student_wellness') {
+      for (let i = 0; i < Math.min(answers.length, questions.length); i++) {
+        const question = questions[i];
+        const answer = answers[i];
+        const points = answer !== null && answer !== undefined ? answer : 0;
+        score += points;
+        results.push({
+          questionId: question.id,
+          selectedIndex: answer,
+          correctIndex: question.correct_index,
+          isCorrect: false,
+          isScored: true,
+          points: points
+        });
+      }
+      const feedback = getWellnessFeedback(score);
+      res.json({
+        score,
+        totalQuestions: questions.length,
+        percentage: null,
+        results,
+        tier: feedback.tier,
+        feedback: feedback.feedback,
+        recommendation: feedback.recommendation,
+        maxScore: 36
+      });
+    } else if (categoryId === 'study_skills') {
+      const pointMap = { 0: 3, 1: 2, 2: 1, 3: 0 };
+      for (let i = 0; i < Math.min(answers.length, questions.length); i++) {
+        const question = questions[i];
+        const answer = answers[i];
+        const points = answer !== null && answer !== undefined ? pointMap[answer] || 0 : 0;
+        score += points;
+        results.push({
+          questionId: question.id,
+          selectedIndex: answer,
+          correctIndex: question.correct_index,
+          isCorrect: false,
+          isScored: true,
+          points: points
+        });
+      }
+      const feedback = getStudySkillsFeedback(score);
+      res.json({
+        score,
+        totalQuestions: questions.length,
+        percentage: null,
+        results,
+        level: feedback.level,
+        tier: feedback.tier,
+        emoji: feedback.emoji,
+        feedback: feedback.feedback,
+        tips: feedback.tips,
+        nextQuest: feedback.nextQuest,
+        maxScore: 30
+      });
+    } else {
+      for (let i = 0; i < Math.min(answers.length, questions.length); i++) {
+        const question = questions[i];
+        const answer = answers[i];
+        const isCorrect = answer !== null && answer !== undefined && answer === question.correct_index;
+        const isScored = question.is_scored;
 
-      if (isScored && isCorrect) {
-        score++;
+        if (isScored && isCorrect) {
+          score++;
+        }
+
+        results.push({
+          questionId: question.id,
+          selectedIndex: answer,
+          correctIndex: question.correct_index,
+          isCorrect,
+          isScored,
+        });
       }
 
-      results.push({
-        questionId: question.id,
-        selectedIndex: answer,
-        correctIndex: question.correct_index,
-        isCorrect,
-        isScored,
+      const percentage = Math.round((score / questions.length) * 100);
+
+      res.json({
+        score,
+        totalQuestions: questions.length,
+        percentage,
+        results,
       });
     }
-
-    const percentage = Math.round((score / questions.length) * 100);
-
-    res.json({
-      score,
-      totalQuestions: questions.length,
-      percentage,
-      results,
-    });
   } catch (error) {
     next(error);
   }

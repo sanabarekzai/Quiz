@@ -5,7 +5,9 @@ INSERT INTO quiz_categories (id, title, description, sort_order) VALUES
   ('literature', 'Literature', 'Questions about books, authors, and literary works.', 2),
   ('sports', 'Sports', 'Questions about various sports and athletes.', 3),
   ('technology', 'Technology', 'Questions about computers, software, and tech innovations.', 4),
-  ('club_carnival', 'Club Carnival', 'Join the fun! Club Carnival is on October 16 at lunch. Help us make it amazing!', 5)
+  ('club_carnival', 'Club Carnival', 'Join the fun! Club Carnival is on October 16 at lunch. Help us make it amazing!', 5),
+  ('student_wellness', 'Student Wellness Survey', 'Directions: Think about the past 2 weeks. Choose the one answer that best describes you. There are no right or wrong answers, and you should answer honestly.', 6),
+  ('study_skills', 'Study Skills Level-Up Quiz', 'Directions: Think about how you\'ve actually studied over the past month, not how you wish you studied. Pick the one answer that fits you best. Nobody is grading you, and honest answers give you better tips.', 7)
 ON CONFLICT (id) DO UPDATE SET
   title = EXCLUDED.title,
   description = EXCLUDED.description,
@@ -99,3 +101,33 @@ ON CONFLICT (category_id, difficulty, prompt) DO NOTHING;
 UPDATE quiz_questions
 SET is_scored = FALSE
 WHERE category_id = 'club_carnival';
+
+-- Student Wellness Survey Questions (12)
+INSERT INTO quiz_questions (category_id, difficulty, prompt, options, correct_index, explanation) VALUES
+  ('student_wellness', 'easy', 'How would you describe your mood most days?', '["Happy or calm", "Okay, with some ups and downs", "Often sad, irritable, or stressed", "Almost always sad, angry, or empty"]'::jsonb, 0, 'A=0, B=1, C=2, D=3'),
+  ('student_wellness', 'easy', 'How well do you sleep at night?', '["I fall asleep easily and wake up rested", "I sometimes have trouble sleeping", "I often have trouble falling asleep, or I wake up tired", "I almost never get enough good sleep"]'::jsonb, 0, 'A=0, B=1, C=2, D=3'),
+  ('student_wellness', 'easy', 'How often do you feel nervous, worried, or on edge?', '["Rarely or never", "Sometimes", "Often", "Almost every day"]'::jsonb, 0, 'A=0, B=1, C=2, D=3'),
+  ('student_wellness', 'easy', 'How do you feel about your friendships and relationships?', '["I have people I trust and feel close to", "I have a few friends, but I sometimes feel left out", "I often feel lonely, even around others", "I feel completely alone or isolated"]'::jsonb, 0, 'A=0, B=1, C=2, D=3'),
+  ('student_wellness', 'easy', 'How interested are you in activities you usually enjoy (hobbies, sports, music, hanging out)?', '["Still very interested", "A little less interested than before", "Much less interested than before", "I don\'t enjoy anything anymore"]'::jsonb, 0, 'A=0, B=1, C=2, D=3'),
+  ('student_wellness', 'easy', 'How do you feel about yourself?', '["I generally like who I am", "I have doubts sometimes, but I feel okay overall", "I often feel like I\'m not good enough", "I feel worthless or hate myself most of the time"]'::jsonb, 0, 'A=0, B=1, C=2, D=3'),
+  ('student_wellness', 'easy', 'How do you handle stress from school, family, or friends?', '["I use healthy ways to cope, like talking, exercising, or taking a break", "I manage, but it\'s sometimes hard", "I often feel overwhelmed and don\'t know what to do", "I feel unable to cope, or I use unhealthy ways to deal with it"]'::jsonb, 0, 'A=0, B=1, C=2, D=3'),
+  ('student_wellness', 'easy', 'How easy is it to focus and get your schoolwork done?', '["Easy most of the time", "Sometimes hard, but I get it done", "Often hard, and my grades or work are suffering", "I can barely focus or have stopped trying"]'::jsonb, 0, 'A=0, B=1, C=2, D=3'),
+  ('student_wellness', 'easy', 'How is your energy level during the day?', '["Good, and I have energy for what I need to do", "Sometimes tired, but I get through the day", "Often exhausted, even for simple tasks", "I feel drained almost all the time"]'::jsonb, 0, 'A=0, B=1, C=2, D=3'),
+  ('student_wellness', 'easy', 'If you were struggling, how comfortable would you be talking to a trusted adult (parent, teacher, counselor)?', '["Very comfortable, and I know who I\'d go to", "Somewhat comfortable", "Uncomfortable, and I\'d probably keep it to myself", "I have no one I could talk to"]'::jsonb, 0, 'A=0, B=1, C=2, D=3'),
+  ('student_wellness', 'easy', 'How have your eating habits been lately?', '["Normal and steady", "Occasionally skipping meals or overeating when stressed", "Noticeable changes in my appetite or eating", "Major changes, such as barely eating or eating out of control"]'::jsonb, 0, 'A=0, B=1, C=2, D=3'),
+  ('student_wellness', 'easy', 'Have you had thoughts of hurting yourself or feeling like life isn\'t worth living?', '["Never", "Once or twice, but they passed quickly", "Fairly often", "Yes, frequently, or I\'ve thought about a plan"]'::jsonb, 0, 'A=0, B=1, C=2, D=3')
+ON CONFLICT (category_id, difficulty, prompt) DO NOTHING;
+
+-- Study Skills Level-Up Quiz Questions (10)
+INSERT INTO quiz_questions (category_id, difficulty, prompt, options, correct_index, explanation) VALUES
+  ('study_skills', 'easy', 'A big assignment is due in two weeks. When do you start?', '["Right away, or I break it into small steps within a couple of days", "Within the first week", "A few days before it\'s due", "The night before (or the morning of)"]'::jsonb, 0, 'A=3, B=2, C=1, D=0'),
+  ('study_skills', 'easy', 'You sit down to study. What happens in the first 10 minutes?', '["I start working right away", "I need a few minutes to settle in, then I focus", "I check my phone or messages a few times first", "I get distracted and often never really start"]'::jsonb, 0, 'A=3, B=2, C=1, D=0'),
+  ('study_skills', 'easy', 'Where is your phone while you study?', '["In another room or on Do Not Disturb", "Face down and out of reach", "Next to me, but I try not to look", "In my hand or on the screen the whole time"]'::jsonb, 0, 'A=3, B=2, C=1, D=0'),
+  ('study_skills', 'easy', 'How do you keep track of homework, tests, and deadlines?', '["A planner or app that I check daily", "I write things down, but I don\'t always check them", "I try to remember everything in my head", "I find out about things when someone reminds me"]'::jsonb, 0, 'A=3, B=2, C=1, D=0'),
+  ('study_skills', 'easy', 'How do you usually study for a test?', '["I quiz myself, use flashcards, or explain it out loud", "I reread notes and also do some practice problems", "I mostly reread or highlight", "I look at the material once, or not at all"]'::jsonb, 0, 'A=3, B=2, C=1, D=0'),
+  ('study_skills', 'easy', 'How is your study schedule?', '["I have a regular time and place that I stick to", "I have a rough routine, but it changes a lot", "I study whenever I \"feel like it\"", "I only study when I\'m panicking"]'::jsonb, 0, 'A=3, B=2, C=1, D=0'),
+  ('study_skills', 'easy', 'When you feel stuck or confused, what do you do?', '["I try again, then ask a teacher, classmate, or look up help", "I wait a bit, then eventually ask for help", "I skip it and hope it doesn\'t come up", "I give up on the whole assignment"]'::jsonb, 0, 'A=3, B=2, C=1, D=0'),
+  ('study_skills', 'easy', 'How do you take breaks?', '["Short, planned breaks (like 5 minutes after 25) and then I return to work", "I take breaks, and I usually get back on track", "My \"short break\" often turns into an hour", "I don\'t take breaks and burn out, or I\'m basically always on break"]'::jsonb, 0, 'A=3, B=2, C=1, D=0'),
+  ('study_skills', 'easy', 'How do you sleep and recharge before big school days?', '["I protect my sleep, and I\'m rarely up late studying", "I sometimes stay up late, but not often", "I often stay up late finishing work", "All-nighters are my normal"]'::jsonb, 0, 'A=3, B=2, C=1, D=0'),
+  ('study_skills', 'easy', 'After a bad grade or a missed deadline, what do you do?', '["I figure out what went wrong and change my plan", "I feel bad, but I try to do better next time", "I feel stressed for a while, then forget about it", "I tell myself I\'m just bad at school and stop trying"]'::jsonb, 0, 'A=3, B=2, C=1, D=0')
+ON CONFLICT (category_id, difficulty, prompt) DO NOTHING;
