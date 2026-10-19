@@ -58,6 +58,7 @@ function publicQuestion(row) {
     difficulty: row.difficulty,
     prompt: row.prompt,
     options: row.options,
+    correctIndex: row.correct_index,
     isScored: row.category_id === "club_carnival" ? false : row.is_scored,
   };
 }
