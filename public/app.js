@@ -439,29 +439,68 @@ function renderResults() {
   const percentage = Number(result.percentage) || 0;
   const perfectRound = percentage === 100;
   const resultDetails = result.results || [];
+  const categoryId = state.currentQuiz?.id || state.selectedQuizId;
+  
+  let surveyContent = "";
+  
+  if (categoryId === 'student_wellness') {
+    const tier = result.tier || "";
+    const feedback = result.feedback || "";
+    const recommendation = result.recommendation || "";
+    const maxScore = result.maxScore || 36;
+    surveyContent = `
+      <div class="survey-feedback">
+        <div class="survey-tier">${escapeHTML(tier)}</div>
+        <p class="survey-feedback-text">${escapeHTML(feedback)}</p>
+        <p class="survey-recommendation">${escapeHTML(recommendation)}</p>
+        <p><strong>Score:</strong> ${score} / ${maxScore}</p>
+      </div>`;
+  } else if (categoryId === 'study_skills') {
+    const level = result.level || 0;
+    const tier = result.tier || "";
+    const emoji = result.emoji || "";
+    const feedback = result.feedback || "";
+    const tips = result.tips || [];
+    const nextQuest = result.nextQuest || "";
+    const maxScore = result.maxScore || 30;
+    surveyContent = `
+      <div class="survey-feedback">
+        <div class="survey-tier">${escapeHTML(emoji)} Level ${escapeHTML(level)}: ${escapeHTML(tier)}</div>
+        <p class="survey-feedback-text">${escapeHTML(feedback)}</p>
+        <div class="survey-tips">
+          <h4>Your Tips:</h4>
+          <ul>${tips.map(tip => `<li>${escapeHTML(tip)}</li>`).join("")}</ul>
+        </div>
+        <p><strong>Next Quest:</strong> ${escapeHTML(nextQuest)}</p>
+        <p><strong>Score:</strong> ${score} / ${maxScore}</p>
+      </div>`;
+  }
   
   app.innerHTML = shell(`
     <main class="results-layout reveal">
       <section class="results-hero" aria-labelledby="results-title">
         <div class="results-copy">
           <div class="eyebrow"><span class="eyebrow-line"></span> Quiz complete \u00b7 ${escapeHTML(state.playerName)}</div>
-          <h1 id="results-title">${perfectRound ? "Perfect Score!" : "Great Effort!"}</h1>
-          <p>${perfectRound ? "You answered all questions correctly! Excellent work." : "You've completed the quiz. Review your results below."}</p>
+          <h1 id="results-title">${perfectRound ? "Perfect Score!" : categoryId === 'student_wellness' || categoryId === 'study_skills' ? "Survey Complete!" : "Great Effort!"}</h1>
+          <p>${perfectRound ? "You answered all questions correctly! Excellent work." : categoryId === 'student_wellness' || categoryId === 'study_skills' ? "Here are your results." : "You've completed the quiz. Review your results below."}</p>
+          ${surveyContent}
           <div class="result-stats">
             <span class="result-stat"><strong>${escapeHTML(state.currentQuiz?.title || state.selectedQuizId)}</strong> quiz</span>
-            <span class="result-stat"><strong>${escapeHTML(score)}</strong> / ${escapeHTML(total)} correct</span>
-            <span class="result-stat"><strong>${escapeHTML(percentage)}%</strong> score</span>
+            ${categoryId !== 'student_wellness' && categoryId !== 'study_skills' ? `
+              <span class="result-stat"><strong>${escapeHTML(score)}</strong> / ${escapeHTML(total)} correct</span>
+              <span class="result-stat"><strong>${escapeHTML(percentage)}%</strong> score</span>` : `
+              <span class="result-stat"><strong>${escapeHTML(score)}</strong> / ${escapeHTML(result.maxScore || total)} points</span>`}
           </div>
         </div>
         <div class="score-stamp" aria-label="Score ${score} out of ${total}">
-          <span class="score-number">${escapeHTML(score)}<span style="font-size:.52em">/${escapeHTML(total)}</span></span>
+          <span class="score-number">${escapeHTML(score)}<span style="font-size:.52em">/${escapeHTML(result.maxScore || total)}</span></span>
           <span class="score-caption">your score</span>
         </div>
       </section>
       <section class="results-summary" aria-labelledby="summary-title">
         <div class="summary-heading">
           <div class="eyebrow"><span class="eyebrow-line"></span> Results Summary</div>
-          <h2 id="summary-title">Question Breakdown</h2>
+          <h2 id="summary-title">${categoryId === 'student_wellness' || categoryId === 'study_skills' ? "Your Responses" : "Question Breakdown"}</h2>
         </div>
         <div class="results-list">
           ${state.questions.map((question, index) => {
@@ -472,8 +511,10 @@ function renderResults() {
             return `<div class="result-item ${isCorrect ? "correct" : "incorrect"}">
               <span class="result-question">Q${index + 1}: ${escapeHTML(question.prompt)}</span>
               <span class="result-answer">Your answer: ${escapeHTML(question.options[answer] || "No answer")}</span>
-              <span class="result-status">${isCorrect ? "\u2713 Correct" : "\u2717 Incorrect"}</span>
-              ${!isCorrect && correctIndex !== undefined ? `<span class="result-correct">Correct: ${escapeHTML(question.options[correctIndex])}</span>` : ""}
+              ${categoryId !== 'student_wellness' && categoryId !== 'study_skills' ? `
+                <span class="result-status">${isCorrect ? "\u2713 Correct" : "\u2717 Incorrect"}</span>
+                ${!isCorrect && correctIndex !== undefined ? `<span class="result-correct">Correct: ${escapeHTML(question.options[correctIndex])}</span>` : ""}` : `
+                <span class="result-points">Points: ${resultItem.points || 0}</span>`}
             </div>`;
           }).join("")}
         </div>
