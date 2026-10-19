@@ -438,6 +438,7 @@ function renderResults() {
   const total = Number(result.totalQuestions) || 0;
   const percentage = Number(result.percentage) || 0;
   const perfectRound = percentage === 100;
+  const resultDetails = result.results || [];
   
   app.innerHTML = shell(`
     <main class="results-layout reveal">
@@ -465,12 +466,14 @@ function renderResults() {
         <div class="results-list">
           ${state.questions.map((question, index) => {
             const answer = state.answers[index];
-            const isCorrect = answer === question.correctIndex;
+            const resultItem = resultDetails[index] || {};
+            const isCorrect = resultItem.isCorrect || false;
+            const correctIndex = resultItem.correctIndex;
             return `<div class="result-item ${isCorrect ? "correct" : "incorrect"}">
               <span class="result-question">Q${index + 1}: ${escapeHTML(question.prompt)}</span>
               <span class="result-answer">Your answer: ${escapeHTML(question.options[answer] || "No answer")}</span>
               <span class="result-status">${isCorrect ? "\u2713 Correct" : "\u2717 Incorrect"}</span>
-              ${!isCorrect ? `<span class="result-correct">Correct: ${escapeHTML(question.options[question.correctIndex])}</span>` : ""}
+              ${!isCorrect && correctIndex !== undefined ? `<span class="result-correct">Correct: ${escapeHTML(question.options[correctIndex])}</span>` : ""}
             </div>`;
           }).join("")}
         </div>
