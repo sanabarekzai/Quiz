@@ -88,16 +88,6 @@ async function registerUser(form) {
     render();
     return;
   }
-  if (username.length < 5) {
-    state.authError = "Username must be at least 5 characters.";
-    render();
-    return;
-  }
-  if (firstName.length < 5 || lastName.length < 5) {
-    state.authError = "First and last name must be at least 5 characters.";
-    render();
-    return;
-  }
   state.authLoading = true;
   state.authError = "";
   render();
@@ -228,20 +218,20 @@ function renderAuthModal() {
           ${state.authError ? `<div class="notice auth-error" role="alert"><span class="notice-symbol" aria-hidden="true">!</span><div><strong>Error</strong><p>${escapeHTML(state.authError)}</p></div></div>` : ""}
           <form id="register-form">
             <div class="form-group">
-              <label for="reg-username">Username (min 5 chars)</label>
-              <input type="text" id="reg-username" name="username" value="${escapeHTML(state.registerData.username)}" required minlength="5" autocomplete="username">
+              <label for="reg-username">Username</label>
+              <input type="text" id="reg-username" name="username" value="${escapeHTML(state.registerData.username)}" required autocomplete="username">
             </div>
             <div class="form-group">
               <label for="reg-password">Password</label>
               <input type="password" id="reg-password" name="password" value="${escapeHTML(state.registerData.password)}" required autocomplete="new-password">
             </div>
             <div class="form-group">
-              <label for="reg-firstName">First Name (min 5 chars)</label>
-              <input type="text" id="reg-firstName" name="firstName" value="${escapeHTML(state.registerData.firstName)}" required minlength="5" autocomplete="given-name">
+              <label for="reg-firstName">First Name</label>
+              <input type="text" id="reg-firstName" name="firstName" value="${escapeHTML(state.registerData.firstName)}" required autocomplete="given-name">
             </div>
             <div class="form-group">
-              <label for="reg-lastName">Last Name (min 5 chars)</label>
-              <input type="text" id="reg-lastName" name="lastName" value="${escapeHTML(state.registerData.lastName)}" required minlength="5" autocomplete="family-name">
+              <label for="reg-lastName">Last Name</label>
+              <input type="text" id="reg-lastName" name="lastName" value="${escapeHTML(state.registerData.lastName)}" required autocomplete="family-name">
             </div>
             <div class="form-group">
               <label for="reg-displayName">Display Name (optional)</label>

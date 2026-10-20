@@ -128,12 +128,6 @@ app.post("/api/register", async (req, res, next) => {
     });
   }
   
-  if (username.length < 5) {
-    return res.status(400).json({ 
-      error: "Username must be at least 5 characters long." 
-    });
-  }
-  
   try {
     const existingUser = await getUserByUsername(username);
     if (existingUser) {
