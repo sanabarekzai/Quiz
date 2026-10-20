@@ -296,7 +296,12 @@ app.post("/api/logout", (req, res) => {
 app.get("/api/quizzes", async (req, res, next) => {
   try {
     const result = await pool.query(`
-      SELECT c.id AS category, c.title, c.description, COUNT(q.id)::int AS "questionCount"
+      SELECT c.id, c.title, c.description,
+        CASE WHEN c.id = 'mixed' THEN (
+          SELECT LEAST(COUNT(*), ${QUESTIONS_PER_GAME})::int
+          FROM quiz_questions
+          WHERE category_id NOT IN ('mixed', 'club_carnival', 'student_wellness', 'study_skills')
+        ) ELSE COUNT(q.id)::int END AS "questionCount"
       FROM quiz_categories c
       LEFT JOIN quiz_questions q ON c.id = q.category_id
       GROUP BY c.id, c.title, c.description, c.sort_order
@@ -319,13 +324,22 @@ app.get("/api/quizzes/:id", async (req, res, next) => {
       return res.status(404).json({ error: "Quiz not found." });
     }
 
-    const questionsResult = await pool.query(
-      `SELECT id, category_id, difficulty, prompt, options, is_scored
-       FROM quiz_questions
-       WHERE category_id = $1
-       ORDER BY random()`,
-      [id]
-    );
+    const questionsResult = id === "mixed"
+      ? await pool.query(
+        `SELECT id, category_id, difficulty, prompt, options, is_scored
+         FROM quiz_questions
+         WHERE category_id NOT IN ('mixed', 'club_carnival', 'student_wellness', 'study_skills')
+         ORDER BY random()
+         LIMIT $1`,
+        [QUESTIONS_PER_GAME],
+      )
+      : await pool.query(
+        `SELECT id, category_id, difficulty, prompt, options, is_scored
+         FROM quiz_questions
+         WHERE category_id = $1
+         ORDER BY random()`,
+        [id],
+      );
 
     const questions = questionsResult.rows.map((row) => publicQuestion(row));
     res.json({
@@ -448,20 +462,35 @@ function getStudySkillsFeedback(totalScore) {
 
 app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
   const { id } = req.params;
-  const { answers } = req.body || {};
+  const { answers, questionIds } = req.body || {};
 
-  if (!Array.isArray(answers)) {
-    return res.status(400).json({ error: "Answers must be an array." });
+  if (!Array.isArray(answers) || !Array.isArray(questionIds) ||
+      answers.length !== questionIds.length ||
+      !questionIds.every((questionId) => Number.isSafeInteger(questionId) && questionId > 0)) {
+    return res.status(400).json({ error: "Answers and question IDs must be matching arrays." });
   }
 
   try {
-    const questionsResult = await pool.query(
-      `SELECT id, correct_index, is_scored, category_id
-       FROM quiz_questions
-       WHERE category_id = $1
-       ORDER BY id`,
-      [id]
-    );
+    const questionsResult = id === "mixed"
+      ? await pool.query(
+        `SELECT id, correct_index, is_scored, category_id
+         FROM quiz_questions
+         WHERE id = ANY($1::int[])
+           AND category_id NOT IN ('mixed', 'club_carnival', 'student_wellness', 'study_skills')
+         ORDER BY array_position($1::int[], id)`,
+        [questionIds],
+      )
+      : await pool.query(
+        `SELECT id, correct_index, is_scored, category_id
+         FROM quiz_questions
+         WHERE id = ANY($1::int[]) AND category_id = $2
+         ORDER BY array_position($1::int[], id)`,
+        [questionIds, id],
+      );
+
+    if (questionsResult.rowCount !== questionIds.length) {
+      return res.status(400).json({ error: "The selected questions do not match this quiz." });
+    }
 
     if (questionsResult.rowCount === 0) {
       return res.status(404).json({ error: "Quiz not found or has no questions." });

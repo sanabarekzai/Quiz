@@ -274,8 +274,6 @@ function renderAuthModal() {
 }
 
 function renderSetup() {
-  const selectedQuiz = state.quizzes.find((quiz) => quiz.id === state.selectedQuizId);
-  
   app.innerHTML = shell(`
     <main class="setup-layout reveal">
       <section class="intro-panel" aria-labelledby="intro-title">
@@ -330,10 +328,6 @@ function renderSetup() {
                 }).join("")}
               </div>
             </fieldset>
-            <div class="form-section">
-              <label class="section-heading" for="player-name">What should we call you? <span class="section-hint">On the leaderboard</span></label>
-              <input class="name-field" id="player-name" name="playerName" type="text" maxlength="24" autocomplete="nickname" placeholder="Your name" value="${escapeHTML(state.playerName)}" required>
-            </div>
             <div class="form-actions">
               <button class="primary-button start-button" type="submit" ${state.starting || !state.selectedQuizId ? "disabled" : ""}>
                 <span>${state.starting ? "Loading quiz..." : "Start Quiz"}</span><span class="button-arrow" aria-hidden="true">${state.starting ? "\u2026" : "\u2192"}</span>
@@ -544,12 +538,11 @@ async function loadQuizzes() {
 
 async function startQuiz(form) {
   if (state.starting) return;
-  const formData = new FormData(form);
-  const playerName = String(formData.get("playerName") || "").trim();
+  const playerName = String(state.user?.displayName || "Guest").trim();
   const quizId = String(formData.get("quizId") || "");
   
-  if (!playerName || !quizId) {
-    state.setupError = !quizId ? "Choose a quiz before starting." : "Add your name before starting.";
+  if (!quizId) {
+    state.setupError = "Choose a quiz before starting.";
     render();
     return;
   }
@@ -562,7 +555,7 @@ async function startQuiz(form) {
   
   try {
     const result = await api(`/api/quizzes/${encodeURIComponent(quizId)}`);
-    if (!result?.quiz || !Array.isArray(result.questions)) {
+    if (!result?.quiz || !Array.isArray(result.questions) || result.questions.length === 0) {
       throw new Error("Quiz data is incomplete. Please try again.");
     }
     
@@ -600,6 +593,7 @@ async function submitQuiz() {
       method: "POST",
       body: JSON.stringify({
         answers: state.answers,
+        questionIds: state.questions.map((question) => question.id),
       }),
     });
     
@@ -667,8 +661,6 @@ app.addEventListener("change", (event) => {
   if (!(target instanceof HTMLInputElement)) return;
   
   if (target.name === "quizId") {
-    const nameField = app.querySelector("#player-name");
-    if (nameField) state.playerName = nameField.value;
     state.selectedQuizId = target.value;
     app.querySelectorAll(".category-choice").forEach((choice) => {
       const radio = choice.querySelector('input[name="quizId"]');
@@ -677,8 +669,6 @@ app.addEventListener("change", (event) => {
     const button = app.querySelector(".start-button");
     if (button) button.disabled = state.starting || !state.selectedQuizId;
     renderSetup();
-  } else if (target.name === "playerName") {
-    state.playerName = target.value;
   } else if (target.name === "answer") {
     state.answers[state.currentQuestionIndex] = Number(target.value);
     app.querySelectorAll(".answer-option").forEach((choice) => {
