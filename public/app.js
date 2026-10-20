@@ -538,6 +538,7 @@ async function loadQuizzes() {
 
 async function startQuiz(form) {
   if (state.starting) return;
+  const formData = new FormData(form);
   const playerName = String(state.user?.displayName || "Guest").trim();
   const quizId = String(formData.get("quizId") || "");
   
