@@ -21,6 +21,8 @@ const state = {
   quizzes: [],
   selectedQuizId: "",
   playerName: "",
+  myRecords: [],
+  recordsError: "",
   setupError: "",
   starting: false,
   currentQuiz: null,
@@ -106,6 +108,7 @@ async function registerUser(form) {
     state.authModal = "none";
     state.authLoading = false;
     state.registerData = { username: "", password: "", firstName: "", lastName: "", displayName: "" };
+    await loadMyRecords();
     render();
   } catch (error) {
     state.authError = error.message || "Registration failed.";
@@ -137,6 +140,7 @@ async function loginUser(form) {
     state.authModal = "none";
     state.authLoading = false;
     state.loginData = { username: "", password: "" };
+    await loadMyRecords();
     render();
   } catch (error) {
     state.authError = error.message || "Login failed.";
@@ -149,6 +153,8 @@ async function logoutUser() {
   try {
     await api("/api/logout", { method: "POST" });
     state.user = null;
+    state.myRecords = [];
+    state.recordsError = "";
     render();
   } catch (error) {
     console.error("Logout error:", error);
@@ -159,10 +165,27 @@ async function checkAuthStatus() {
   try {
     const result = await api("/api/me");
     state.user = result.user;
+    await loadMyRecords();
     render();
   } catch (error) {
     state.user = null;
+    state.myRecords = [];
     render();
+  }
+}
+
+async function loadMyRecords() {
+  if (!state.user) {
+    state.myRecords = [];
+    state.recordsError = "";
+    return;
+  }
+  try {
+    const result = await api("/api/me/records");
+    state.myRecords = Array.isArray(result.records) ? result.records : [];
+    state.recordsError = "";
+  } catch (error) {
+    state.recordsError = error.message || "Your saved records could not be loaded.";
   }
 }
 
@@ -273,6 +296,49 @@ function renderAuthModal() {
   return "";
 }
 
+function renderMyRecords() {
+  if (!state.user) return "";
+  const content = state.recordsError
+    ? `<p class="record-note" role="alert">${escapeHTML(state.recordsError)}</p>`
+    : state.myRecords.length === 0
+      ? '<p class="record-note">Your completed quizzes and latest results will appear here.</p>'
+      : `<div class="account-record-list">${state.myRecords.map((record) => {
+        const result = record.result || {};
+        const isOpinionSurvey = record.categoryId === "club_carnival";
+        const scoreLabel = isOpinionSurvey
+          ? "Opinion responses saved"
+          : result.maxScore
+            ? `${record.score} / ${result.maxScore} points`
+            : record.percentage !== null
+              ? `${record.score} / ${record.totalQuestions} · ${record.percentage}%`
+              : `${record.score} / ${record.totalQuestions} points`;
+        const feedback = typeof result.feedback === "string"
+          ? result.feedback
+          : result.tier || result.level
+            ? [result.emoji, result.tier || `Level ${result.level}`, result.recommendation].filter(Boolean).join(" · ")
+            : "Latest result saved.";
+        return `<article class="account-record">
+          <div class="account-record-heading">
+            <h3>${escapeHTML(record.title)}</h3>
+            <span>${escapeHTML(record.attemptCount)} ${record.attemptCount === 1 ? "attempt" : "attempts"}</span>
+          </div>
+          <p class="account-record-score">${escapeHTML(scoreLabel)}</p>
+          <p class="account-record-feedback">${escapeHTML(feedback)}</p>
+          <time datetime="${escapeHTML(record.completedAt)}">Latest attempt: ${escapeHTML(new Date(record.completedAt).toLocaleDateString())}</time>
+        </article>`;
+      }).join("")}</div>`;
+
+  return `<section class="account-records" aria-labelledby="account-records-title">
+    <div class="account-records-heading">
+      <div>
+        <div class="eyebrow"><span class="eyebrow-line"></span> Saved to your account</div>
+        <h2 id="account-records-title">Your latest quiz records</h2>
+      </div>
+    </div>
+    ${content}
+  </section>`;
+}
+
 function renderSetup() {
   app.innerHTML = shell(`
     <main class="setup-layout reveal">
@@ -291,6 +357,7 @@ function renderSetup() {
           <h2 id="setup-title">Set up your quiz</h2>
           <p>Choose a quiz category and begin your quiz.</p>
         </div>
+        ${renderMyRecords()}
         ${state.setupError ? `
           <div class="notice" role="alert">
             <span class="notice-symbol" aria-hidden="true">!</span>
@@ -421,13 +488,17 @@ function renderResults() {
   const score = Number(result.score) || 0;
   const total = Number(result.totalQuestions) || 0;
   const percentage = Number(result.percentage) || 0;
-  const perfectRound = percentage === 100;
   const resultDetails = result.results || [];
   const categoryId = state.currentQuiz?.id || state.selectedQuizId;
+  const isOpinionSurvey = categoryId === "club_carnival";
+  const isFeedbackSurvey = categoryId === "student_wellness" || categoryId === "study_skills";
+  const perfectRound = !isOpinionSurvey && percentage === 100;
   
   let surveyContent = "";
   
-  if (categoryId === 'student_wellness') {
+  if (isOpinionSurvey) {
+    surveyContent = `<div class="survey-feedback"><p class="survey-feedback-text">${escapeHTML(result.feedback || "Thanks for sharing your thoughts about the club.")}</p></div>`;
+  } else if (categoryId === 'student_wellness') {
     const tier = result.tier || "";
     const feedback = result.feedback || "";
     const recommendation = result.recommendation || "";
@@ -465,26 +536,26 @@ function renderResults() {
       <section class="results-hero" aria-labelledby="results-title">
         <div class="results-copy">
           <div class="eyebrow"><span class="eyebrow-line"></span> Quiz complete \u00b7 ${escapeHTML(state.playerName)}</div>
-          <h1 id="results-title">${perfectRound ? "Perfect Score!" : categoryId === 'student_wellness' || categoryId === 'study_skills' ? "Survey Complete!" : "Great Effort!"}</h1>
-          <p>${perfectRound ? "You answered all questions correctly! Excellent work." : categoryId === 'student_wellness' || categoryId === 'study_skills' ? "Here are your results." : "You've completed the quiz. Review your results below."}</p>
+          <h1 id="results-title">${isOpinionSurvey || isFeedbackSurvey ? "Survey Complete!" : perfectRound ? "Perfect Score!" : "Great Effort!"}</h1>
+          <p>${isOpinionSurvey ? "Your responses have been saved to your account." : perfectRound ? "You answered all questions correctly! Excellent work." : isFeedbackSurvey ? "Here are your results." : "You've completed the quiz. Review your results below."}</p>
           ${surveyContent}
           <div class="result-stats">
             <span class="result-stat"><strong>${escapeHTML(state.currentQuiz?.title || state.selectedQuizId)}</strong> quiz</span>
-            ${categoryId !== 'student_wellness' && categoryId !== 'study_skills' ? `
+            ${isOpinionSurvey ? "" : !isFeedbackSurvey ? `
               <span class="result-stat"><strong>${escapeHTML(score)}</strong> / ${escapeHTML(total)} correct</span>
               <span class="result-stat"><strong>${escapeHTML(percentage)}%</strong> score</span>` : `
               <span class="result-stat"><strong>${escapeHTML(score)}</strong> / ${escapeHTML(result.maxScore || total)} points</span>`}
           </div>
         </div>
-        <div class="score-stamp" aria-label="Score ${score} out of ${total}">
+        ${isOpinionSurvey ? "" : `<div class="score-stamp" aria-label="Score ${score} out of ${total}">
           <span class="score-number">${escapeHTML(score)}<span style="font-size:.52em">/${escapeHTML(result.maxScore || total)}</span></span>
           <span class="score-caption">your score</span>
-        </div>
+        </div>`}
       </section>
       <section class="results-summary" aria-labelledby="summary-title">
         <div class="summary-heading">
           <div class="eyebrow"><span class="eyebrow-line"></span> Results Summary</div>
-          <h2 id="summary-title">${categoryId === 'student_wellness' || categoryId === 'study_skills' ? "Your Responses" : "Question Breakdown"}</h2>
+          <h2 id="summary-title">${isOpinionSurvey || isFeedbackSurvey ? "Your Responses" : "Question Breakdown"}</h2>
         </div>
         <div class="results-list">
           ${state.questions.map((question, index) => {
@@ -492,10 +563,10 @@ function renderResults() {
             const resultItem = resultDetails[index] || {};
             const isCorrect = resultItem.isCorrect || false;
             const correctIndex = resultItem.correctIndex;
-            return `<div class="result-item ${isCorrect ? "correct" : "incorrect"}">
+            return `<div class="result-item ${isOpinionSurvey ? "" : isFeedbackSurvey ? "" : isCorrect ? "correct" : "incorrect"}">
               <span class="result-question">Q${index + 1}: ${escapeHTML(question.prompt)}</span>
               <span class="result-answer">Your answer: ${escapeHTML(question.options[answer] || "No answer")}</span>
-              ${categoryId !== 'student_wellness' && categoryId !== 'study_skills' ? `
+              ${isOpinionSurvey ? "" : !isFeedbackSurvey ? `
                 <span class="result-status">${isCorrect ? "\u2713 Correct" : "\u2717 Incorrect"}</span>
                 ${!isCorrect && correctIndex !== undefined ? `<span class="result-correct">Correct: ${escapeHTML(question.options[correctIndex])}</span>` : ""}` : `
                 <span class="result-points">Points: ${resultItem.points || 0}</span>`}
@@ -577,6 +648,12 @@ async function startQuiz(form) {
 
 async function submitQuiz() {
   if (state.submitting) return;
+  if (!state.user) {
+    state.authModal = "login";
+    state.authError = "Log in to save your quiz results to your account.";
+    render();
+    return;
+  }
   
   // Check all questions are answered
   if (state.answers.some(a => a === null)) {
@@ -605,6 +682,7 @@ async function submitQuiz() {
     state.results = result;
     state.screen = "results";
     state.submitting = false;
+    await loadMyRecords();
     render();
   } catch (error) {
     state.answerError = error.message || "Please try submitting your quiz again.";

@@ -4,6 +4,7 @@ const { randomUUID } = require("node:crypto");
 const { Pool } = require("pg");
 const bcrypt = require("bcrypt");
 const session = require("express-session");
+const connectPgSimple = require("connect-pg-simple");
 const cookieParser = require("cookie-parser");
 const { OAuth2Client } = require("google-auth-library");
 
@@ -11,11 +12,14 @@ const PORT = Number(process.env.PORT || 5000);
 const QUESTIONS_PER_GAME = 5;
 const DIFFICULTIES = new Set(["easy", "medium", "hard"]);
 const SALT_ROUNDS = 12;
-const SESSION_SECRET = process.env.SESSION_SECRET || randomUUID();
+const SESSION_SECRET = process.env.SESSION_SECRET;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is required. Connect the Replit PostgreSQL database before starting the app.");
+}
+if (!SESSION_SECRET) {
+  throw new Error("SESSION_SECRET is required so sign-in sessions survive server restarts.");
 }
 
 const pool = new Pool({
@@ -24,24 +28,47 @@ const pool = new Pool({
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 5_000,
 });
+const PgSessionStore = connectPgSimple(session);
+const sessionStore = new PgSessionStore({
+  pool,
+  tableName: "user_sessions",
+  createTableIfMissing: false,
+});
 
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 
 const app = express();
 app.disable("x-powered-by");
+app.set("trust proxy", 1);
 app.use(express.json({ limit: "16kb" }));
 app.use(express.static(path.join(__dirname, "public")));
 app.use(cookieParser());
 app.use(session({
   secret: SESSION_SECRET,
+  store: sessionStore,
   resave: false,
   saveUninitialized: false,
+  rolling: true,
   cookie: {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    maxAge: null, // Session lasts until logout
+    sameSite: "lax",
+    maxAge: 365 * 24 * 60 * 60 * 1000,
   },
 }));
+
+function establishSession(req, userId) {
+  return new Promise((resolve, reject) => {
+    req.session.regenerate((regenerateError) => {
+      if (regenerateError) return reject(regenerateError);
+      req.session.userId = userId;
+      req.session.save((saveError) => {
+        if (saveError) return reject(saveError);
+        resolve();
+      });
+    });
+  });
+}
 
 // Middleware to check if user is authenticated
 function requireAuth(req, res, next) {
@@ -142,8 +169,7 @@ app.post("/api/register", async (req, res, next) => {
       displayName: displayName || `${firstName} ${lastName}`,
     });
     
-    req.session.userId = user.id;
-    req.session.save();
+    await establishSession(req, user.id);
     
     res.status(201).json({
       user: {
@@ -156,6 +182,9 @@ app.post("/api/register", async (req, res, next) => {
       },
     });
   } catch (error) {
+    if (error.code === "23505") {
+      return res.status(409).json({ error: "An account with that username already exists. Please log in instead." });
+    }
     next(error);
   }
 });
@@ -185,8 +214,7 @@ app.post("/api/login", async (req, res, next) => {
       return res.status(401).json({ error: "Invalid username or password." });
     }
     
-    req.session.userId = user.id;
-    req.session.save();
+    await establishSession(req, user.id);
     
     res.json({
       user: {
@@ -239,8 +267,7 @@ app.post("/api/auth/google", async (req, res, next) => {
       });
     }
     
-    req.session.userId = user.id;
-    req.session.save();
+    await establishSession(req, user.id);
     
     res.json({
       user: {
@@ -276,6 +303,35 @@ app.get("/api/me", requireAuth, async (req, res, next) => {
         role: user.role,
       },
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/me/records", requireAuth, async (req, res, next) => {
+  try {
+    const result = await pool.query(
+      `WITH ranked_attempts AS (
+         SELECT a.id, a.category_id, c.title, a.score, a.total_questions,
+                a.percentage, a.result, a.completed_at,
+                COUNT(*) OVER (PARTITION BY a.category_id)::int AS attempt_count,
+                ROW_NUMBER() OVER (
+                  PARTITION BY a.category_id
+                  ORDER BY a.completed_at DESC, a.id DESC
+                ) AS attempt_rank
+         FROM quiz_attempts a
+         JOIN quiz_categories c ON c.id = a.category_id
+         WHERE a.user_id = $1
+       )
+       SELECT id, category_id AS "categoryId", title, score,
+              total_questions AS "totalQuestions", percentage, result,
+              completed_at AS "completedAt", attempt_count AS "attemptCount"
+       FROM ranked_attempts
+       WHERE attempt_rank = 1
+       ORDER BY "completedAt" DESC`,
+      [req.session.userId],
+    );
+    res.json({ records: result.rows });
   } catch (error) {
     next(error);
   }
@@ -351,6 +407,27 @@ app.get("/api/quizzes/:id", async (req, res, next) => {
     next(error);
   }
 });
+
+async function saveQuizAttempt(userId, categoryId, questionIds, answers, result) {
+  await pool.query(
+    `INSERT INTO quiz_attempts
+      (user_id, category_id, question_ids, answers, result, score, total_questions, percentage)
+     VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8)`,
+    [
+      userId,
+      categoryId,
+      questionIds,
+      JSON.stringify(answers.map((selectedIndex, index) => ({
+        questionId: questionIds[index],
+        selectedIndex,
+      }))),
+      JSON.stringify(result),
+      result.score,
+      result.totalQuestions,
+      result.percentage,
+    ],
+  );
+}
 
 function getWellnessFeedback(totalScore) {
   if (totalScore >= 0 && totalScore <= 8) {
@@ -466,6 +543,7 @@ app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
 
   if (!Array.isArray(answers) || !Array.isArray(questionIds) ||
       answers.length !== questionIds.length ||
+      !answers.every((answer) => Number.isInteger(answer) && answer >= 0 && answer < 4) ||
       !questionIds.every((questionId) => Number.isSafeInteger(questionId) && questionId > 0)) {
     return res.status(400).json({ error: "Answers and question IDs must be matching arrays." });
   }
@@ -501,7 +579,25 @@ app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
     let score = 0;
     const results = [];
 
-    if (categoryId === 'student_wellness') {
+    if (categoryId === "club_carnival") {
+      for (let i = 0; i < questions.length; i++) {
+        results.push({
+          questionId: questions[i].id,
+          selectedIndex: answers[i],
+          isCorrect: null,
+          isScored: false,
+        });
+      }
+      const response = {
+        score: null,
+        totalQuestions: questions.length,
+        percentage: null,
+        results,
+        feedback: "Thanks for sharing your thoughts about the club.",
+      };
+      await saveQuizAttempt(req.session.userId, id, questionIds, answers, response);
+      return res.json(response);
+    } else if (categoryId === 'student_wellness') {
       for (let i = 0; i < Math.min(answers.length, questions.length); i++) {
         const question = questions[i];
         const answer = answers[i];
@@ -517,7 +613,7 @@ app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
         });
       }
       const feedback = getWellnessFeedback(score);
-      res.json({
+      const response = {
         score,
         totalQuestions: questions.length,
         percentage: null,
@@ -526,7 +622,9 @@ app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
         feedback: feedback.feedback,
         recommendation: feedback.recommendation,
         maxScore: 36
-      });
+      };
+      await saveQuizAttempt(req.session.userId, id, questionIds, answers, response);
+      res.json(response);
     } else if (categoryId === 'study_skills') {
       const pointMap = { 0: 3, 1: 2, 2: 1, 3: 0 };
       for (let i = 0; i < Math.min(answers.length, questions.length); i++) {
@@ -544,7 +642,7 @@ app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
         });
       }
       const feedback = getStudySkillsFeedback(score);
-      res.json({
+      const response = {
         score,
         totalQuestions: questions.length,
         percentage: null,
@@ -556,7 +654,9 @@ app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
         tips: feedback.tips,
         nextQuest: feedback.nextQuest,
         maxScore: 30
-      });
+      };
+      await saveQuizAttempt(req.session.userId, id, questionIds, answers, response);
+      res.json(response);
     } else {
       for (let i = 0; i < Math.min(answers.length, questions.length); i++) {
         const question = questions[i];
@@ -579,12 +679,14 @@ app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
 
       const percentage = Math.round((score / questions.length) * 100);
 
-      res.json({
+      const response = {
         score,
         totalQuestions: questions.length,
         percentage,
         results,
-      });
+      };
+      await saveQuizAttempt(req.session.userId, id, questionIds, answers, response);
+      res.json(response);
     }
   } catch (error) {
     next(error);

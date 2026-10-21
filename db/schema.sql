@@ -11,6 +11,18 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE users
+  DROP CONSTRAINT IF EXISTS users_username_check;
+
+CREATE TABLE IF NOT EXISTS user_sessions (
+  sid VARCHAR NOT NULL PRIMARY KEY,
+  sess JSON NOT NULL,
+  expire TIMESTAMP(6) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS user_sessions_expire_idx
+  ON user_sessions (expire);
+
 CREATE TABLE IF NOT EXISTS quiz_categories (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
@@ -51,7 +63,22 @@ CREATE TABLE IF NOT EXISTS quiz_sessions (
   completed_at TIMESTAMPTZ
 );
 
+CREATE TABLE IF NOT EXISTS quiz_attempts (
+  id BIGSERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  category_id TEXT NOT NULL REFERENCES quiz_categories(id),
+  question_ids INTEGER[] NOT NULL,
+  answers JSONB NOT NULL,
+  result JSONB NOT NULL,
+  score INTEGER,
+  total_questions INTEGER NOT NULL CHECK (total_questions > 0),
+  percentage INTEGER,
+  completed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS quiz_questions_category_difficulty_idx
   ON quiz_questions (category_id, difficulty);
 CREATE INDEX IF NOT EXISTS quiz_sessions_leaderboard_idx
   ON quiz_sessions (category_id, status, score DESC, duration_seconds ASC, completed_at DESC);
+CREATE INDEX IF NOT EXISTS quiz_attempts_user_latest_idx
+  ON quiz_attempts (user_id, completed_at DESC, id DESC);

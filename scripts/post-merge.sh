@@ -2,4 +2,5 @@
 set -euo pipefail
 
 npm ci --no-audit --no-fund
+psql "${DATABASE_URL:?DATABASE_URL is required for development schema setup}" -v ON_ERROR_STOP=1 -f db/schema.sql
 npm test
