@@ -735,9 +735,9 @@ app.post("/api/sessions", async (req, res, next) => {
     const questionIds = questionResult.rows.map((question) => question.id);
     await pool.query(
       `INSERT INTO quiz_sessions
-        (id, player_name, category_id, difficulty, question_ids, total_questions)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [sessionId, playerName, category, difficulty, questionIds, QUESTIONS_PER_GAME],
+        (id, user_id, player_name, category_id, difficulty, question_ids, total_questions)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [sessionId, req.session?.userId || null, playerName, category, difficulty, questionIds, QUESTIONS_PER_GAME],
     );
 
     res.status(201).json({

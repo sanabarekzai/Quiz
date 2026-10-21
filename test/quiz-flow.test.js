@@ -108,3 +108,49 @@ test("selecting a quiz and starting it displays its first question", async () =>
   assert.match(app.innerHTML, /What does H2O represent\?/);
   assert.match(app.innerHTML, /Question 1 of 1/);
 });
+
+test("a returning user sees the latest saved quiz record after signing in", async () => {
+  const app = new MockApp();
+  const fetch = async (url) => {
+    if (url === "/api/me") {
+      return jsonResponse({
+        user: { id: 8, username: "returning-player", displayName: "Returning Player" },
+      });
+    }
+    if (url === "/api/me/records") {
+      return jsonResponse({
+        records: [{
+          categoryId: "science",
+          title: "Science",
+          score: 10,
+          totalQuestions: 15,
+          percentage: 67,
+          attemptCount: 2,
+          completedAt: "2026-10-21T18:00:00.000Z",
+          result: { score: 10, percentage: 67 },
+        }],
+      });
+    }
+    if (url === "/api/quizzes") return jsonResponse({ quizzes: [] });
+    throw new Error(`Unexpected API request: ${url}`);
+  };
+
+  vm.runInNewContext(appSource, {
+    document: { querySelector: () => app },
+    window: { addEventListener() {} },
+    fetch,
+    HTMLFormElement: MockForm,
+    HTMLInputElement: MockInput,
+    FormData: MockFormData,
+    Element: class MockElement {},
+    console,
+  });
+
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.match(app.innerHTML, /Your latest quiz records/);
+  assert.match(app.innerHTML, /Science/);
+  assert.match(app.innerHTML, /10 \/ 15 · 67%/);
+  assert.match(app.innerHTML, /2 attempts/);
+});
