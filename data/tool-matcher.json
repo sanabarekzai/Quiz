@@ -1,0 +1,195 @@
+{
+  "tools": [
+    {
+      "id": "FT",
+      "name": "Focustown",
+      "group": "focus",
+      "blurb": "Join a cozy virtual cafe or library and study next to real people in real time, with a focus timer and coins you earn to customize your character. Built around body-doubling (working alongside others), plus rewards like streaks. Mainly a mobile app (iOS and Android).",
+      "firstStep": "Download the app and join a study room with others."
+    },
+    {
+      "id": "LA",
+      "name": "LifeAt",
+      "group": "focus",
+      "blurb": "Customizable virtual spaces with sounds and Pomodoro timers, plus to-do lists, a calendar that syncs with Google Calendar, and a notepad. Co-work with others through video, audio, and text chat. The cozy, aesthetic study room.",
+      "firstStep": "Create your first study space and invite a friend."
+    },
+    {
+      "id": "STR",
+      "name": "Structured",
+      "group": "planners",
+      "blurb": "Combines a calendar, to-do list, and habit tracker in one visual timeline. Free version has an inbox for tasks without a time yet, sub-tasks, and a Pomodoro timer. Pro adds AI day-drafting and automatic rescheduling of missed tasks. Strongest for hour-by-hour planning.",
+      "firstStep": "Add your weekly schedule to the timeline view."
+    },
+    {
+      "id": "CAL",
+      "name": "Google Calendar",
+      "group": "planners",
+      "blurb": "Events, deadlines, and reminders that sync across devices and can be shared. Simple and fast, but not a study tool by itself.",
+      "firstStep": "Create a new calendar for school and add your next deadline."
+    },
+    {
+      "id": "NOT",
+      "name": "Notion",
+      "group": "learn",
+      "blurb": "A flexible workspace for notes, databases, project trackers, and dashboards. You build your own system, which is powerful but takes setup. Features and pricing may change.",
+      "firstStep": "Create a simple study dashboard with a to-do list and notes."
+    },
+    {
+      "id": "QZ",
+      "name": "Quizlet",
+      "group": "learn",
+      "blurb": "Flashcards, practice tests, and study modes for memorizing and self-testing. Great for subjects requiring memorization.",
+      "firstStep": "Create a flashcard set for your next test."
+    },
+    {
+      "id": "GEM",
+      "name": "Gemini",
+      "group": "learn",
+      "blurb": "An AI assistant that can explain topics, summarize notes, brainstorm, and make practice questions. Check your school's rules and age requirements first.",
+      "firstStep": "Ask it to explain a concept you're struggling with."
+    }
+  ],
+  "groups": [
+    {
+      "id": "planners",
+      "name": "Time Planners",
+      "description": "Tools that help you organize and schedule your time",
+      "toolIds": ["CAL", "STR", "NOT"]
+    },
+    {
+      "id": "focus",
+      "name": "Focus and Accountability",
+      "description": "Tools that help you stay focused with others",
+      "toolIds": ["FT", "LA"]
+    },
+    {
+      "id": "learn",
+      "name": "Learn and Remember",
+      "description": "Tools that help you understand and retain information",
+      "toolIds": ["QZ", "GEM", "NOT"]
+    }
+  ],
+  "questions": [
+    {
+      "id": 1,
+      "text": "What's your biggest school struggle right now?",
+      "choices": [
+        {"id": "A", "text": "Staying focused and not getting distracted", "points": {"FT": 3, "LA": 3, "STR": 1}},
+        {"id": "B", "text": "Knowing what to do and when", "points": {"STR": 3, "CAL": 3, "NOT": 1}},
+        {"id": "C", "text": "Understanding hard material", "points": {"GEM": 3, "QZ": 2, "NOT": 1}},
+        {"id": "D", "text": "Memorizing things for tests", "points": {"QZ": 3, "GEM": 1, "NOT": 1}}
+      ]
+    },
+    {
+      "id": 2,
+      "text": "How do you want to plan your day?",
+      "choices": [
+        {"id": "A", "text": "An hour-by-hour visual timeline", "points": {"STR": 3, "CAL": 2}},
+        {"id": "B", "text": "A calendar with events and reminders", "points": {"CAL": 3, "STR": 1, "LA": 1}},
+        {"id": "C", "text": "My own custom setup with lists, tables, and notes", "points": {"NOT": 3, "LA": 1}},
+        {"id": "D", "text": "I don't want to plan, I just want to start working", "points": {"FT": 2, "LA": 2, "QZ": 1}}
+      ]
+    },
+    {
+      "id": 3,
+      "text": "What study atmosphere helps you most?",
+      "choices": [
+        {"id": "A", "text": "Studying with other people at the same time, even strangers", "points": {"FT": 3, "LA": 2}},
+        {"id": "B", "text": "A cozy, customized space with music and sounds", "points": {"LA": 3, "FT": 1, "NOT": 1}},
+        {"id": "C", "text": "Quiet and minimal, with just the tools", "points": {"CAL": 1, "STR": 1, "NOT": 1, "QZ": 1}},
+        {"id": "D", "text": "Active and interactive, where I test myself or ask questions", "points": {"QZ": 3, "GEM": 2}}
+      ]
+    },
+    {
+      "id": 4,
+      "text": "What do you most want to track?",
+      "choices": [
+        {"id": "A", "text": "How long I focus and my streaks", "points": {"FT": 3, "LA": 1, "STR": 1}},
+        {"id": "B", "text": "Deadlines, tests, and events", "points": {"CAL": 3, "STR": 2}},
+        {"id": "C", "text": "Daily habits and routines", "points": {"STR": 3, "NOT": 1, "CAL": 1}},
+        {"id": "D", "text": "What I know and what I still need to learn", "points": {"QZ": 3, "NOT": 1, "GEM": 1}}
+      ]
+    },
+    {
+      "id": 5,
+      "text": "How do you handle notes?",
+      "choices": [
+        {"id": "A", "text": "I like organized pages, folders, and tables", "points": {"NOT": 3, "LA": 1}},
+        {"id": "B", "text": "My notes are messy and I want help cleaning or summarizing them", "points": {"GEM": 3, "NOT": 1, "QZ": 1}},
+        {"id": "C", "text": "I want to turn my notes into flashcards", "points": {"QZ": 3, "GEM": 1}},
+        {"id": "D", "text": "I barely take notes, I'd rather keep a task list", "points": {"STR": 2, "CAL": 1, "FT": 1}}
+      ]
+    },
+    {
+      "id": 6,
+      "text": "When you're stuck on something, what helps most?",
+      "choices": [
+        {"id": "A", "text": "Having it explained in different ways until it clicks", "points": {"GEM": 3}},
+        {"id": "B", "text": "Studying with other people", "points": {"FT": 2, "LA": 2, "QZ": 1}},
+        {"id": "C", "text": "Going back to my own organized notes", "points": {"NOT": 3}},
+        {"id": "D", "text": "Practicing questions until I get it", "points": {"QZ": 3, "GEM": 1}}
+      ]
+    },
+    {
+      "id": 7,
+      "text": "How social do you want your study tools to be?",
+      "choices": [
+        {"id": "A", "text": "I want a shared virtual space to hang out and customize with friends", "points": {"LA": 3, "FT": 2}},
+        {"id": "B", "text": "Sharing is fine (shared calendars, pages, or study sets)", "points": {"CAL": 2, "QZ": 2, "NOT": 2, "LA": 1}},
+        {"id": "C", "text": "Private, just me", "points": {"STR": 2, "GEM": 2, "NOT": 1}},
+        {"id": "D", "text": "Just knowing someone can see I'm working keeps me honest", "points": {"FT": 3, "LA": 2}}
+      ]
+    },
+    {
+      "id": 8,
+      "text": "What would keep you using a tool for months?",
+      "choices": [
+        {"id": "A", "text": "Rewards, coins, and streaks", "points": {"FT": 3, "QZ": 1, "STR": 1}},
+        {"id": "B", "text": "Making it look the way I want", "points": {"LA": 3, "NOT": 2, "STR": 1}},
+        {"id": "C", "text": "It's fast and simple, and it just works", "points": {"CAL": 3, "GEM": 2, "QZ": 1}},
+        {"id": "D", "text": "Seeing clearly what's done and what's left", "points": {"STR": 3, "NOT": 1, "QZ": 1}}
+      ]
+    },
+    {
+      "id": 9,
+      "text": "Which best describes your workload?",
+      "choices": [
+        {"id": "A", "text": "Big projects with many parts (research, drafts, sources)", "points": {"NOT": 3, "GEM": 2, "STR": 1}},
+        {"id": "B", "text": "Lots of small daily assignments", "points": {"STR": 3, "CAL": 1}},
+        {"id": "C", "text": "Mostly tests with lots to memorize", "points": {"QZ": 3, "GEM": 1}},
+        {"id": "D", "text": "School plus sports, clubs, or a job", "points": {"CAL": 3, "STR": 2}}
+      ]
+    },
+    {
+      "id": 10,
+      "text": "How do you feel about using AI for school?",
+      "choices": [
+        {"id": "A", "text": "I want a tutor that explains and quizzes me", "points": {"GEM": 3, "QZ": 1}},
+        {"id": "B", "text": "I want it to build my schedule or break big tasks into steps", "points": {"STR": 2, "GEM": 2, "NOT": 1}},
+        {"id": "C", "text": "I'd rather do my own thinking", "points": {"FT": 2, "CAL": 2, "LA": 1, "NOT": 1}},
+        {"id": "D", "text": "I want it to turn my notes into study materials", "points": {"QZ": 3, "GEM": 2, "NOT": 1}}
+      ]
+    },
+    {
+      "id": 11,
+      "text": "How is your focus?",
+      "choices": [
+        {"id": "A", "text": "I struggle to even sit down and start", "points": {"FT": 3, "LA": 2, "STR": 1}},
+        {"id": "B", "text": "I can work 20 to 30 minutes if I use a timer", "points": {"LA": 2, "STR": 2, "FT": 1}},
+        {"id": "C", "text": "I can focus for long stretches if I know what to do", "points": {"NOT": 1, "GEM": 1, "CAL": 1}},
+        {"id": "D", "text": "Focus is fine, but I'm disorganized", "points": {"NOT": 2, "CAL": 2, "STR": 2}}
+      ]
+    },
+    {
+      "id": 12,
+      "text": "Which sentence sounds most like you?",
+      "choices": [
+        {"id": "A", "text": "I wish someone would just study with me.", "points": {"FT": 3, "LA": 2}},
+        {"id": "B", "text": "I wish I knew exactly what I have to do and when.", "points": {"STR": 3, "CAL": 2}},
+        {"id": "C", "text": "I wish everything was in one place.", "points": {"NOT": 3, "LA": 1, "CAL": 1}},
+        {"id": "D", "text": "I wish I understood this or could remember it for the test.", "points": {"QZ": 3, "GEM": 2}}
+      ]
+    }
+  ]
+}

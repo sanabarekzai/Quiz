@@ -51,6 +51,20 @@ CREATE TABLE IF NOT EXISTS quiz_sessions (
   completed_at TIMESTAMPTZ
 );
 
+CREATE TABLE IF NOT EXISTS matcher_results (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  ranking JSONB NOT NULL,
+  group_scores JSONB NOT NULL,
+  answers JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS matcher_results_user_idx
+  ON matcher_results (user_id);
+CREATE INDEX IF NOT EXISTS matcher_results_created_idx
+  ON matcher_results (created_at DESC);
+
 CREATE INDEX IF NOT EXISTS quiz_questions_category_difficulty_idx
   ON quiz_questions (category_id, difficulty);
 CREATE INDEX IF NOT EXISTS quiz_sessions_leaderboard_idx

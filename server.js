@@ -1,5 +1,6 @@
 const express = require("express");
 const path = require("node:path");
+const fs = require("node:fs");
 const { randomUUID } = require("node:crypto");
 const { Pool } = require("pg");
 const bcrypt = require("bcrypt");
@@ -26,6 +27,15 @@ const pool = new Pool({
 });
 
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
+
+// Load tool matcher data
+let matcherData = null;
+try {
+  const raw = fs.readFileSync(path.join(__dirname, "data", "tool-matcher.json"), "utf8");
+  matcherData = JSON.parse(raw);
+} catch (error) {
+  console.warn("Tool matcher data not loaded:", error.message);
+}
 
 const app = express();
 app.disable("x-powered-by");
@@ -796,6 +806,197 @@ app.get("/api/leaderboard", async (req, res, next) => {
       );
     }
     res.json({ entries: result.rows });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============ TOOL MATCHER API ============
+
+// GET /api/matcher/questions - Returns questions and choices only (no points)
+app.get("/api/matcher/questions", requireAuth, async (req, res, next) => {
+  try {
+    if (!matcherData) {
+      return res.status(503).json({ error: "Tool matcher data is not available." });
+    }
+    const questions = matcherData.questions.map((q) => ({
+      id: q.id,
+      text: q.text,
+      choices: q.choices.map((c) => ({
+        id: c.id,
+        text: c.text,
+      })),
+    }));
+    res.json({ questions });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/matcher/submit - Calculate results and save to database
+app.post("/api/matcher/submit", requireAuth, async (req, res, next) => {
+  const { answers } = req.body || {};
+
+  if (!answers || typeof answers !== "object") {
+    return res.status(400).json({ error: "Answers are required." });
+  }
+
+  try {
+    if (!matcherData) {
+      return res.status(503).json({ error: "Tool matcher data is not available." });
+    }
+
+    // Validate all 12 questions are answered with valid choices
+    const questionIds = matcherData.questions.map((q) => String(q.id));
+    const validChoices = new Set();
+    matcherData.questions.forEach((q) => {
+      q.choices.forEach((c) => validChoices.add(c.id));
+    });
+
+    const userAnswers = {};
+    for (const [qId, choiceId] of Object.entries(answers)) {
+      if (!questionIds.includes(qId)) {
+        return res.status(400).json({ error: `Invalid question ID: ${qId}` });
+      }
+      if (!validChoices.has(choiceId)) {
+        return res.status(400).json({ error: `Invalid choice ID: ${choiceId}` });
+      }
+      userAnswers[qId] = choiceId;
+    }
+
+    if (Object.keys(userAnswers).length !== 12) {
+      return res.status(400).json({ error: "All 12 questions must be answered." });
+    }
+
+    // Calculate scores per tool
+    const toolScores = {};
+    const toolIds = matcherData.tools.map((t) => t.id);
+    toolIds.forEach((id) => (toolScores[id] = 0));
+
+    for (const [qId, choiceId] of Object.entries(userAnswers)) {
+      const question = matcherData.questions.find((q) => String(q.id) === qId);
+      if (!question) continue;
+
+      const choice = question.choices.find((c) => c.id === choiceId);
+      if (!choice || !choice.points) continue;
+
+      for (const [toolId, points] of Object.entries(choice.points)) {
+        if (toolIds.includes(toolId)) {
+          toolScores[toolId] = (toolScores[toolId] || 0) + points;
+        }
+      }
+    }
+
+    // Calculate max possible per tool
+    const maxPossible = {};
+    toolIds.forEach((id) => (maxPossible[id] = 0));
+
+    for (const question of matcherData.questions) {
+      for (const choice of question.choices) {
+        if (!choice.points) continue;
+        for (const [toolId, points] of Object.entries(choice.points)) {
+          if (toolIds.includes(toolId)) {
+            maxPossible[toolId] = Math.max(maxPossible[toolId] || 0, points);
+          }
+        }
+      }
+    }
+
+    // Calculate match percentages
+    const matchPercents = {};
+    for (const toolId of toolIds) {
+      matchPercents[toolId] = Math.round((toolScores[toolId] / maxPossible[toolId]) * 100);
+    }
+
+    // Sort by match percentage (descending), then by Q1 points, then alphabetically
+    const question1Id = "1";
+    const q1Choice = userAnswers[question1Id];
+    const q1Points = {};
+    if (q1Choice) {
+      const q1 = matcherData.questions.find((q) => String(q.id) === question1Id);
+      if (q1) {
+        const choice = q1.choices.find((c) => c.id === q1Choice);
+        if (choice && choice.points) {
+          for (const [toolId, points] of Object.entries(choice.points)) {
+            q1Points[toolId] = points;
+          }
+        }
+      }
+    }
+
+    const sortedTools = [...toolIds].sort((a, b) => {
+      // Primary: match percentage descending
+      if (matchPercents[a] !== matchPercents[b]) {
+        return matchPercents[b] - matchPercents[a];
+      }
+      // Secondary: Q1 points descending
+      const aQ1 = q1Points[a] || 0;
+      const bQ1 = q1Points[b] || 0;
+      if (aQ1 !== bQ1) {
+        return bQ1 - aQ1;
+      }
+      // Tertiary: alphabetical by tool ID
+      return a.localeCompare(b);
+    });
+
+    // Create ranking
+    const ranking = sortedTools.map((toolId, index) => {
+      const tool = matcherData.tools.find((t) => t.id === toolId);
+      return {
+        rank: index + 1,
+        toolId: toolId,
+        name: tool ? tool.name : toolId,
+        matchPercent: matchPercents[toolId],
+        group: tool ? tool.group : "unknown",
+        blurb: tool ? tool.blurb : "",
+        firstStep: tool ? tool.firstStep : "",
+      };
+    });
+
+    // Calculate group scores
+    const groupScores = {};
+    for (const group of matcherData.groups) {
+      const groupToolIds = group.toolIds;
+      const total = groupToolIds.reduce((sum, tid) => sum + (matchPercents[tid] || 0), 0);
+      groupScores[group.id] = {
+        name: group.name,
+        average: Math.round(total / groupToolIds.length),
+      };
+    }
+
+    // Sort groups by average score
+    const sortedGroups = Object.entries(groupScores)
+      .sort(([, a], [, b]) => b.average - a.average)
+      .map(([id, data]) => ({ id, ...data }));
+
+    // Save to database
+    await pool.query(
+      `INSERT INTO matcher_results (user_id, ranking, group_scores, answers)
+       VALUES ($1, $2, $3, $4)`,
+      [req.session.userId, JSON.stringify(ranking), JSON.stringify(groupScores), JSON.stringify(userAnswers)]
+    );
+
+    res.json({
+      ranking,
+      groups: sortedGroups,
+      matchPercents,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/matcher/results - Get current user's past results
+app.get("/api/matcher/results", requireAuth, async (req, res, next) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, ranking, group_scores, answers, created_at
+       FROM matcher_results
+       WHERE user_id = $1
+       ORDER BY created_at DESC`,
+      [req.session.userId]
+    );
+    res.json({ results: result.rows });
   } catch (error) {
     next(error);
   }
