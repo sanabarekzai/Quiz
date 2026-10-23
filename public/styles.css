@@ -625,6 +625,42 @@ button { color: inherit; }
 .result-stat { display: flex; gap: 6px; align-items: baseline; padding: 8px 10px; border: 1px solid rgba(255,255,255,.2); border-radius: 4px; color: rgba(255,253,247,.8); font-family: var(--mono); font-size: 10px; }
 .result-stat strong { color: var(--sun); font-size: 11px; }
 
+.personality-results { display: grid; gap: 20px; }
+.personality-distribution,
+.personality-profile-card,
+.personality-reflections {
+  padding: 24px;
+  border: 1px solid rgba(29, 37, 66, .1);
+  border-radius: 8px;
+  background: rgba(255, 253, 247, .76);
+}
+.personality-distribution .eyebrow,
+.personality-profile-card .eyebrow,
+.personality-reflections .eyebrow { color: var(--coral); }
+.personality-distribution h3,
+.personality-reflections h3 { margin: 8px 0; font-family: var(--display); font-size: clamp(22px, 3vw, 30px); letter-spacing: -.055em; }
+.personality-distribution > p,
+.personality-reflections > p { color: var(--muted); font-size: 12px; line-height: 1.7; }
+.personality-blend { padding: 12px 14px; border-left: 3px solid var(--sun); background: #f7f1df; color: var(--ink) !important; }
+.personality-bars { display: grid; gap: 13px; margin-top: 19px; }
+.personality-bar-label { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 5px; color: var(--ink); font-size: 12px; }
+.personality-bar-label strong { font-family: var(--mono); font-size: 11px; }
+.personality-bar-track { height: 9px; overflow: hidden; border-radius: 99px; background: var(--paper-deep); }
+.personality-bar-fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--indigo), #62839d); }
+.personality-profile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 310px), 1fr)); gap: 16px; }
+.personality-profile-card h3 { margin: 9px 0 4px; font-family: var(--display); font-size: 25px; letter-spacing: -.05em; }
+.personality-profile-card h4 { margin: 17px 0 5px; color: var(--indigo); font-size: 12px; }
+.personality-profile-card p,
+.personality-profile-card li { color: var(--muted); font-size: 12px; line-height: 1.65; }
+.personality-profile-card ul { display: grid; gap: 5px; padding-left: 19px; }
+.personality-profile-card .personality-tagline { margin: 0 0 14px; color: var(--coral); font-weight: 700; }
+.personality-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.personality-detail-grid h4 { margin-top: 9px; }
+.personality-detail-grid p { margin: 0; }
+.personality-profile-card .personality-challenge { margin: 17px 0 0; padding: 12px; border-radius: 5px; background: #f3eedf; color: var(--ink); }
+.personality-reflections ol { display: grid; gap: 9px; padding-left: 22px; color: var(--ink); font-size: 13px; line-height: 1.6; }
+.personality-reflections > p { margin-bottom: 0; font-size: 10px; }
+
 .leaderboard-section {
   padding: 27px clamp(20px, 4vw, 38px) 23px;
   border: 1px solid rgba(29, 37, 66, .1);
@@ -759,6 +795,8 @@ button { color: inherit; }
   .score-number { font-size: 39px; }
   .score-caption { font-size: 8px; }
   .result-stats { margin-top: 14px; }
+  .personality-detail-grid { grid-template-columns: 1fr; gap: 5px; }
+  .personality-distribution, .personality-profile-card, .personality-reflections { padding: 18px; }
   .result-stat { padding: 7px 8px; font-size: 9px; }
   .leaderboard-section { padding: 21px 15px 17px; }
   .leaderboard-heading { align-items: flex-start; }
@@ -1193,3 +1231,14 @@ body {
   font-size: 12px;
   line-height: 1.5;
 }
+
+.profile-history {
+  margin: 11px 0;
+  padding: 10px 12px;
+  border-radius: 5px;
+  background: var(--blue-wash);
+}
+.profile-history h4 { margin: 0 0 7px; color: var(--ink); font-size: 10px; }
+.profile-history ol { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.profile-history li { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 10px; }
+.profile-history time { flex: none; font-family: var(--mono); font-size: 9px; }

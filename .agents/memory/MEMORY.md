@@ -1,1 +1,2 @@
 - [Club Carnival survey intent](club-carnival-survey.md) — Treat every answer as an opinion response, never as right or wrong.
+- [Study personality survey intent](study-personality-survey.md) — Keep results reflective and nonjudgmental, keep reflection answers private, and preserve profile history.

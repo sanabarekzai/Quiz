@@ -12,6 +12,21 @@ const PORT = Number(process.env.PORT || 5000);
 const QUESTIONS_PER_GAME = 5;
 const DIFFICULTIES = new Set(["easy", "medium", "hard"]);
 const UNAVAILABLE_QUIZ_IDS = new Set(["mixed", "science", "geography", "history"]);
+const STUDY_PERSONALITY_PROFILE_ORDER = ["S", "P", "B", "E"];
+const STUDY_PERSONALITY_PROFILE_NAMES = {
+  S: "Sprinter",
+  P: "Perfectionist Planner",
+  B: "Study Buddy",
+  E: "Explorer",
+};
+const STUDY_PERSONALITY_BLEND_MESSAGES = {
+  SP: "You delay, then want it perfect. Start early with a rough version so you have time to improve it.",
+  SB: "You work better with other people around when the deadline is near. Schedule a study session before the deadline.",
+  SE: "You wait for pressure and get pulled in many directions. Short timers and mini-deadlines help most.",
+  PB: "You do your best work with structure and people. Share your plan with a study partner.",
+  PE: "You jump between organizing and exploring. Pick one project and limit the planning time.",
+  BE: "You’re energized by people and ideas. Give study sessions a goal so they don’t turn into social time.",
+};
 const SALT_ROUNDS = 12;
 const SESSION_SECRET = process.env.SESSION_SECRET;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -80,15 +95,18 @@ function requireAuth(req, res, next) {
 }
 
 function publicQuestion(row) {
-  return {
+  const question = {
     id: row.id,
     category: row.category_id,
     difficulty: row.difficulty,
     prompt: row.prompt,
     options: row.options,
-    correctIndex: row.correct_index,
     isScored: row.category_id === "club_carnival" ? false : row.is_scored,
   };
+  if (row.category_id !== "study_personality") {
+    question.correctIndex = row.correct_index;
+  }
+  return question;
 }
 
 function cleanPlayerName(value) {
@@ -313,7 +331,7 @@ app.get("/api/me/records", requireAuth, async (req, res, next) => {
   try {
     const result = await pool.query(
       `WITH ranked_attempts AS (
-         SELECT a.id, a.category_id, c.title, a.score, a.total_questions,
+         SELECT a.id, a.user_id, a.category_id, c.title, a.score, a.total_questions,
                 a.percentage, a.result, a.completed_at,
                 COUNT(*) OVER (PARTITION BY a.category_id)::int AS attempt_count,
                 ROW_NUMBER() OVER (
@@ -324,9 +342,27 @@ app.get("/api/me/records", requireAuth, async (req, res, next) => {
          JOIN quiz_categories c ON c.id = a.category_id
          WHERE a.user_id = $1
        )
-       SELECT id, category_id AS "categoryId", title, score,
+        SELECT id, category_id AS "categoryId", title, score,
               total_questions AS "totalQuestions", percentage, result,
-              completed_at AS "completedAt", attempt_count AS "attemptCount"
+               completed_at AS "completedAt", attempt_count AS "attemptCount",
+               CASE WHEN category_id = 'study_personality' THEN (
+                 SELECT jsonb_agg(
+                   jsonb_build_object(
+                     'completedAt', history.completed_at,
+                     'profileSummary', history.result->>'profileSummary',
+                     'primaryProfiles', history.result->'primaryProfiles'
+                   )
+                   ORDER BY history.completed_at DESC, history.id DESC
+                 )
+                 FROM (
+                   SELECT h.id, h.completed_at, h.result
+                   FROM quiz_attempts h
+                   WHERE h.user_id = ranked_attempts.user_id
+                     AND h.category_id = ranked_attempts.category_id
+                   ORDER BY h.completed_at DESC, h.id DESC
+                   LIMIT 5
+                 ) history
+               ) ELSE '[]'::jsonb END AS "profileHistory"
        FROM ranked_attempts
        WHERE attempt_rank = 1
        ORDER BY "completedAt" DESC`,
@@ -559,7 +595,7 @@ app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
   try {
     const questionsResult = id === "mixed"
       ? await pool.query(
-        `SELECT id, correct_index, is_scored, category_id
+          `SELECT id, correct_index, is_scored, category_id, answer_points
          FROM quiz_questions
          WHERE id = ANY($1::int[])
            AND category_id NOT IN ('mixed', 'club_carnival', 'student_wellness', 'study_skills')
@@ -567,7 +603,7 @@ app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
         [questionIds],
       )
       : await pool.query(
-        `SELECT id, correct_index, is_scored, category_id
+          `SELECT id, correct_index, is_scored, category_id, answer_points
          FROM quiz_questions
          WHERE id = ANY($1::int[]) AND category_id = $2
          ORDER BY array_position($1::int[], id)`,
@@ -602,6 +638,65 @@ app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
         percentage: null,
         results,
         feedback: "Thanks for sharing your thoughts about the club.",
+      };
+      await saveQuizAttempt(req.session.userId, id, questionIds, answers, response);
+      return res.json(response);
+    } else if (categoryId === "study_personality") {
+      const profileCounts = { S: 0, P: 0, B: 0, E: 0 };
+      for (let i = 0; i < questions.length; i++) {
+        const profileId = questions[i].answer_points?.[answers[i]];
+        if (!Object.hasOwn(profileCounts, profileId)) {
+          return res.status(500).json({ error: "Study personality scoring is not configured correctly." });
+        }
+        profileCounts[profileId]++;
+        results.push({
+          questionId: questions[i].id,
+          selectedIndex: answers[i],
+          isCorrect: null,
+          isScored: false,
+        });
+      }
+
+      const rankedProfiles = STUDY_PERSONALITY_PROFILE_ORDER
+        .map((profileId) => ({
+          id: profileId,
+          name: STUDY_PERSONALITY_PROFILE_NAMES[profileId],
+          count: profileCounts[profileId],
+          percentage: Math.round((profileCounts[profileId] / questions.length) * 100),
+        }))
+        .sort((a, b) => b.count - a.count ||
+          STUDY_PERSONALITY_PROFILE_ORDER.indexOf(a.id) - STUDY_PERSONALITY_PROFILE_ORDER.indexOf(b.id));
+      const highestCount = rankedProfiles[0].count;
+      const tiedForFirst = rankedProfiles.filter((profile) => profile.count === highestCount);
+      const primaryProfiles = tiedForFirst.length > 1
+        ? tiedForFirst.map((profile) => profile.id)
+        : [rankedProfiles[0].id];
+      if (tiedForFirst.length === 1 && highestCount - rankedProfiles[1].count <= 2) {
+        primaryProfiles.push(rankedProfiles[1].id);
+      }
+
+      const isTie = tiedForFirst.length > 1;
+      const blendKey = primaryProfiles.length === 2
+        ? STUDY_PERSONALITY_PROFILE_ORDER
+          .filter((profileId) => primaryProfiles.includes(profileId))
+          .join("")
+        : null;
+      const profileSummary = isTie
+        ? `A balanced mix of ${primaryProfiles.map((profileId) => STUDY_PERSONALITY_PROFILE_NAMES[profileId]).join(" and ")}`
+        : primaryProfiles.length === 2
+          ? `${STUDY_PERSONALITY_PROFILE_NAMES[primaryProfiles[0]]} with ${STUDY_PERSONALITY_PROFILE_NAMES[primaryProfiles[1]]} tendencies`
+          : STUDY_PERSONALITY_PROFILE_NAMES[primaryProfiles[0]];
+      const response = {
+        score: null,
+        totalQuestions: questions.length,
+        percentage: null,
+        results,
+        profiles: rankedProfiles,
+        primaryProfiles,
+        isTie,
+        profileSummary,
+        feedback: profileSummary,
+        blendMessage: !isTie && blendKey ? STUDY_PERSONALITY_BLEND_MESSAGES[blendKey] : null,
       };
       await saveQuizAttempt(req.session.userId, id, questionIds, answers, response);
       return res.json(response);

@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS quiz_questions (
   options JSONB NOT NULL CHECK (jsonb_typeof(options) = 'array' AND jsonb_array_length(options) = 4),
   correct_index SMALLINT NOT NULL CHECK (correct_index BETWEEN 0 AND 3),
   is_scored BOOLEAN NOT NULL DEFAULT TRUE,
+  answer_points JSONB NOT NULL DEFAULT '[]'::jsonb
+    CHECK (jsonb_typeof(answer_points) = 'array'),
   explanation TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (category_id, difficulty, prompt)
@@ -45,6 +47,12 @@ CREATE TABLE IF NOT EXISTS quiz_questions (
 
 ALTER TABLE quiz_questions
   ADD COLUMN IF NOT EXISTS is_scored BOOLEAN NOT NULL DEFAULT TRUE;
+
+ALTER TABLE quiz_questions
+  ADD COLUMN IF NOT EXISTS answer_points JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+ALTER TABLE quiz_questions
+  ALTER COLUMN correct_index DROP NOT NULL;
 
 CREATE TABLE IF NOT EXISTS quiz_sessions (
   id UUID PRIMARY KEY,

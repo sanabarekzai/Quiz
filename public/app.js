@@ -38,6 +38,65 @@ const state = {
   leaderboardRequest: 0,
 };
 
+const STUDY_PERSONALITY_PROFILES = {
+  S: {
+    name: "The Sprinter",
+    emoji: "⚡",
+    tagline: "You thrive under pressure.",
+    strengths: "Deadlines give you focus and energy, and you can produce a lot in a short time.",
+    watchOut: "Last-minute work leaves little room for mistakes, sleep, or help. It can also be stressful, even when it works.",
+    strategies: [
+      "Make fake deadlines. Set mini-deadlines before the real one.",
+      "Use the 5-minute rule: promise yourself you’ll work for just five minutes.",
+      "Start with the step you’re avoiding.",
+    ],
+    tools: "Structured, Google Calendar, and Focustown.",
+    challenge: "Start one assignment three days early, even for just 15 minutes.",
+  },
+  P: {
+    name: "The Perfectionist Planner",
+    emoji: "📋",
+    tagline: "You care about quality and organization.",
+    strengths: "You’re reliable, detail-oriented, and rarely miss a deadline.",
+    watchOut: "Organizing can become a way to avoid the work, and chasing “perfect” can drain your time and energy.",
+    strategies: [
+      "Set a 15-minute limit for planning, then start.",
+      "Aim for “good enough” on a first draft. Rough drafts are meant to be messy.",
+      "Practice an imperfect start by doing one task at 80% quality on purpose.",
+    ],
+    tools: "Notion, Quizlet, and Structured.",
+    challenge: "Finish one task without doing a final perfecting pass.",
+  },
+  B: {
+    name: "The Study Buddy",
+    emoji: "🤝",
+    tagline: "You get energy from other people.",
+    strengths: "You explain ideas well, ask for help easily, and keep others motivated.",
+    watchOut: "Studying can slip when nobody is around, and chatting can replace working.",
+    strategies: [
+      "Tell a friend your goal and check in when you’re done.",
+      "Schedule study sessions with a clear goal for each one.",
+      "Take turns teaching topics, and keep a solo backup plan for days nobody is available.",
+    ],
+    tools: "Focustown, LifeAt, Quizlet, and Google Calendar.",
+    challenge: "Set up one study session with a goal written down beforehand.",
+  },
+  E: {
+    name: "The Explorer",
+    emoji: "🧭",
+    tagline: "You’re curious and creative.",
+    strengths: "You generate ideas, enjoy learning, and notice things others miss.",
+    watchOut: "Your attention can jump between topics and tabs, so deadlines may sneak up.",
+    strategies: [
+      "Keep a “parking lot” note for tempting side-thoughts.",
+      "Use short timed sessions, then reward yourself with time to explore.",
+      "Pick one thing to finish before opening anything new.",
+    ],
+    tools: "Structured, Notion, Focustown, and Gemini.",
+    challenge: "Do three 25-minute sessions with your phone out of reach and note distractions instead of following them.",
+  },
+};
+
 const escapeHTML = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
   "&": "&amp;",
   "<": "&lt;",
@@ -305,13 +364,31 @@ function renderMyRecords() {
       : `<div class="account-record-list">${state.myRecords.map((record) => {
         const result = record.result || {};
         const isOpinionSurvey = record.categoryId === "club_carnival";
+        const isPersonalitySurvey = record.categoryId === "study_personality";
+        const profileNames = (result.primaryProfiles || [])
+          .map((profileId) => STUDY_PERSONALITY_PROFILES[profileId]?.name.replace(/^The /, ""))
+          .filter(Boolean);
+        const profileHistory = Array.isArray(record.profileHistory) ? record.profileHistory : [];
+        const profileHistoryMarkup = isPersonalitySurvey && profileHistory.length > 1
+          ? `<div class="profile-history">
+              <h4>Recent profiles</h4>
+              <ol>${profileHistory.map((attempt) => {
+                const names = (attempt.primaryProfiles || [])
+                  .map((profileId) => STUDY_PERSONALITY_PROFILES[profileId]?.name.replace(/^The /, ""))
+                  .filter(Boolean);
+                return `<li><span>${escapeHTML(names.join(" + ") || "Profile saved")}</span><time datetime="${escapeHTML(attempt.completedAt)}">${escapeHTML(new Date(attempt.completedAt).toLocaleDateString())}</time></li>`;
+              }).join("")}</ol>
+            </div>`
+          : "";
         const scoreLabel = isOpinionSurvey
           ? "Opinion responses saved"
-          : result.maxScore
-            ? `${record.score} / ${result.maxScore} points`
-            : record.percentage !== null
-              ? `${record.score} / ${record.totalQuestions} · ${record.percentage}%`
-              : `${record.score} / ${record.totalQuestions} points`;
+          : isPersonalitySurvey
+            ? `Study profile: ${profileNames.join(" + ") || "saved"}`
+            : result.maxScore
+              ? `${record.score} / ${result.maxScore} points`
+              : record.percentage !== null
+                ? `${record.score} / ${record.totalQuestions} · ${record.percentage}%`
+                : `${record.score} / ${record.totalQuestions} points`;
         const feedback = typeof result.feedback === "string"
           ? result.feedback
           : result.tier || result.level
@@ -324,6 +401,7 @@ function renderMyRecords() {
           </div>
           <p class="account-record-score">${escapeHTML(scoreLabel)}</p>
           <p class="account-record-feedback">${escapeHTML(feedback)}</p>
+          ${profileHistoryMarkup}
           <time datetime="${escapeHTML(record.completedAt)}">Latest attempt: ${escapeHTML(new Date(record.completedAt).toLocaleDateString())}</time>
         </article>`;
       }).join("")}</div>`;
@@ -483,6 +561,59 @@ function renderQuiz() {
     </main>`, "quiz");
 }
 
+function renderStudyPersonalityResults(result) {
+  const profileBars = (result.profiles || []).map((profile) => {
+    const details = STUDY_PERSONALITY_PROFILES[profile.id];
+    if (!details) return "";
+    const percentage = Math.max(0, Math.min(100, Number(profile.percentage) || 0));
+    return `<div class="personality-bar-row">
+      <div class="personality-bar-label"><span>${details.emoji} ${escapeHTML(details.name.replace(/^The /, ""))}</span><strong>${percentage}%</strong></div>
+      <div class="personality-bar-track" role="progressbar" aria-label="${escapeHTML(details.name)} share of responses" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percentage}">
+        <div class="personality-bar-fill" style="width:${percentage}%"></div>
+      </div>
+    </div>`;
+  }).join("");
+
+  const primaryProfiles = (result.primaryProfiles || [])
+    .map((profileId) => STUDY_PERSONALITY_PROFILES[profileId] ? { id: profileId, ...STUDY_PERSONALITY_PROFILES[profileId] } : null)
+    .filter(Boolean);
+  const profileCards = primaryProfiles.map((profile) => `
+    <article class="personality-profile-card">
+      <div class="eyebrow"><span class="eyebrow-line"></span> ${escapeHTML(profile.emoji)} Study style</div>
+      <h3>${escapeHTML(profile.name)}</h3>
+      <p class="personality-tagline">${escapeHTML(profile.tagline)}</p>
+      <div class="personality-detail-grid">
+        <div><h4>Strengths</h4><p>${escapeHTML(profile.strengths)}</p></div>
+        <div><h4>Watch out for</h4><p>${escapeHTML(profile.watchOut)}</p></div>
+      </div>
+      <h4>Strategies to try</h4>
+      <ul>${profile.strategies.map((strategy) => `<li>${escapeHTML(strategy)}</li>`).join("")}</ul>
+      <p><strong>Tools to explore:</strong> ${escapeHTML(profile.tools)}</p>
+      <p class="personality-challenge"><strong>This week’s challenge:</strong> ${escapeHTML(profile.challenge)}</p>
+    </article>`).join("");
+
+  return `<div class="personality-results">
+    <section class="personality-distribution" aria-labelledby="personality-distribution-title">
+      <div class="eyebrow"><span class="eyebrow-line"></span> Your response patterns</div>
+      <h3 id="personality-distribution-title">${escapeHTML(result.profileSummary || "Your study profile")}</h3>
+      <p>No answer is right or wrong, and no profile is better than another. These patterns can shift over time.</p>
+      ${result.blendMessage ? `<p class="personality-blend">${escapeHTML(result.blendMessage)}</p>` : ""}
+      <div class="personality-bars">${profileBars}</div>
+    </section>
+    <div class="personality-profile-grid">${profileCards}</div>
+    <section class="personality-reflections" aria-labelledby="personality-reflections-title">
+      <div class="eyebrow"><span class="eyebrow-line"></span> Reflect privately or with a club partner</div>
+      <h3 id="personality-reflections-title">Think it over</h3>
+      <ol>
+        <li>Which profile surprised you, and which felt right?</li>
+        <li>When is your pattern a strength, and when does it get in your way?</li>
+        <li>What’s one tip you’ll try this week?</li>
+      </ol>
+      <p>Reflection answers are not collected or saved.</p>
+    </section>
+  </div>`;
+}
+
 function renderResults() {
   const result = state.results || {};
   const score = Number(result.score) || 0;
@@ -491,8 +622,9 @@ function renderResults() {
   const resultDetails = result.results || [];
   const categoryId = state.currentQuiz?.id || state.selectedQuizId;
   const isOpinionSurvey = categoryId === "club_carnival";
+  const isPersonalitySurvey = categoryId === "study_personality";
   const isFeedbackSurvey = categoryId === "student_wellness" || categoryId === "study_skills";
-  const perfectRound = !isOpinionSurvey && percentage === 100;
+  const perfectRound = !isOpinionSurvey && !isPersonalitySurvey && percentage === 100;
   
   let surveyContent = "";
   
@@ -536,18 +668,18 @@ function renderResults() {
       <section class="results-hero" aria-labelledby="results-title">
         <div class="results-copy">
           <div class="eyebrow"><span class="eyebrow-line"></span> Quiz complete \u00b7 ${escapeHTML(state.playerName)}</div>
-          <h1 id="results-title">${isOpinionSurvey || isFeedbackSurvey ? "Survey Complete!" : perfectRound ? "Perfect Score!" : "Great Effort!"}</h1>
-          <p>${isOpinionSurvey ? "Your responses have been saved to your account." : perfectRound ? "You answered all questions correctly! Excellent work." : isFeedbackSurvey ? "Here are your results." : "You've completed the quiz. Review your results below."}</p>
+          <h1 id="results-title">${isPersonalitySurvey ? "Your Study Personality" : isOpinionSurvey || isFeedbackSurvey ? "Survey Complete!" : perfectRound ? "Perfect Score!" : "Great Effort!"}</h1>
+          <p>${isPersonalitySurvey ? "A self-reflection tool, not a test. Use these patterns as a starting point, not a label." : isOpinionSurvey ? "Your responses have been saved to your account." : perfectRound ? "You answered all questions correctly! Excellent work." : isFeedbackSurvey ? "Here are your results." : "You've completed the quiz. Review your results below."}</p>
           ${surveyContent}
           <div class="result-stats">
             <span class="result-stat"><strong>${escapeHTML(state.currentQuiz?.title || state.selectedQuizId)}</strong> quiz</span>
-            ${isOpinionSurvey ? "" : !isFeedbackSurvey ? `
+            ${isOpinionSurvey || isPersonalitySurvey ? "" : !isFeedbackSurvey ? `
               <span class="result-stat"><strong>${escapeHTML(score)}</strong> / ${escapeHTML(total)} correct</span>
               <span class="result-stat"><strong>${escapeHTML(percentage)}%</strong> score</span>` : `
               <span class="result-stat"><strong>${escapeHTML(score)}</strong> / ${escapeHTML(result.maxScore || total)} points</span>`}
           </div>
         </div>
-        ${isOpinionSurvey ? "" : `<div class="score-stamp" aria-label="Score ${score} out of ${total}">
+        ${isOpinionSurvey || isPersonalitySurvey ? "" : `<div class="score-stamp" aria-label="Score ${score} out of ${total}">
           <span class="score-number">${escapeHTML(score)}<span style="font-size:.52em">/${escapeHTML(result.maxScore || total)}</span></span>
           <span class="score-caption">your score</span>
         </div>`}
@@ -555,9 +687,9 @@ function renderResults() {
       <section class="results-summary" aria-labelledby="summary-title">
         <div class="summary-heading">
           <div class="eyebrow"><span class="eyebrow-line"></span> Results Summary</div>
-          <h2 id="summary-title">${isOpinionSurvey || isFeedbackSurvey ? "Your Responses" : "Question Breakdown"}</h2>
+          <h2 id="summary-title">${isPersonalitySurvey ? "Your study patterns and next steps" : isOpinionSurvey || isFeedbackSurvey ? "Your Responses" : "Question Breakdown"}</h2>
         </div>
-        <div class="results-list">
+        ${isPersonalitySurvey ? renderStudyPersonalityResults(result) : `<div class="results-list">
           ${state.questions.map((question, index) => {
             const answer = state.answers[index];
             const resultItem = resultDetails[index] || {};
@@ -572,7 +704,7 @@ function renderResults() {
                 <span class="result-points">Points: ${resultItem.points || 0}</span>`}
             </div>`;
           }).join("")}
-        </div>
+        </div>`}
         <div class="results-actions">
           <button class="primary-button" type="button" data-action="retry-quiz"><span>Retry Quiz</span><span class="button-arrow" aria-hidden="true">\u2192</span></button>
           <button class="secondary-button" type="button" data-action="back-to-setup">Back to Quiz Selection</button>
@@ -675,7 +807,9 @@ async function submitQuiz() {
       }),
     });
     
-    if (!result || typeof result.score !== "number") {
+    const categoryId = state.currentQuiz?.id || state.selectedQuizId;
+    const allowsNoNumericScore = categoryId === "club_carnival" || categoryId === "study_personality";
+    if (!result || (!allowsNoNumericScore && typeof result.score !== "number")) {
       throw new Error("We couldn\u2019t calculate your score. Please try again.");
     }
     
