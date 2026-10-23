@@ -93,3 +93,15 @@ CREATE INDEX IF NOT EXISTS quiz_sessions_leaderboard_idx
   ON quiz_sessions (category_id, status, score DESC, duration_seconds ASC, completed_at DESC);
 CREATE INDEX IF NOT EXISTS quiz_attempts_user_latest_idx
   ON quiz_attempts (user_id, completed_at DESC, id DESC);
+
+CREATE TABLE IF NOT EXISTS matcher_results (
+  id BIGSERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  ranking JSONB NOT NULL,
+  group_scores JSONB NOT NULL,
+  answers JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS matcher_results_user_recent_idx
+  ON matcher_results (user_id, created_at DESC, id DESC);

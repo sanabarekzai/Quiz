@@ -7,6 +7,8 @@ const session = require("express-session");
 const connectPgSimple = require("connect-pg-simple");
 const cookieParser = require("cookie-parser");
 const { OAuth2Client } = require("google-auth-library");
+const toolMatcherData = require("./data/tool-matcher.json");
+const { publicQuestions: getPublicMatcherQuestions, validateAnswers: validateMatcherAnswers, calculateResults: calculateMatcherResults } = require("./lib/tool-matcher");
 
 const PORT = Number(process.env.PORT || 5000);
 const QUESTIONS_PER_GAME = 5;
@@ -369,6 +371,44 @@ app.get("/api/me/records", requireAuth, async (req, res, next) => {
       [req.session.userId],
     );
     res.json({ records: result.rows });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/matcher/questions", requireAuth, (req, res) => {
+  res.json({ questions: getPublicMatcherQuestions(toolMatcherData) });
+});
+
+app.post("/api/matcher/submit", requireAuth, async (req, res, next) => {
+  const { answers } = req.body || {};
+  if (!validateMatcherAnswers(answers, toolMatcherData)) {
+    return res.status(400).json({ error: "Answer all 12 questions using one of the listed choices." });
+  }
+  try {
+    const result = calculateMatcherResults(answers, toolMatcherData);
+    const saved = await pool.query(
+      `INSERT INTO matcher_results (user_id, ranking, group_scores, answers)
+       VALUES ($1, $2::jsonb, $3::jsonb, $4::jsonb)
+       RETURNING id, created_at AS "createdAt"`,
+      [req.session.userId, JSON.stringify(result.ranking), JSON.stringify(result.groupScores), JSON.stringify(answers)],
+    );
+    res.status(201).json({ ...result, id: saved.rows[0].id, createdAt: saved.rows[0].createdAt });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/matcher/results", requireAuth, async (req, res, next) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, ranking, group_scores AS "groupScores", answers, created_at AS "createdAt"
+       FROM matcher_results
+       WHERE user_id = $1
+       ORDER BY created_at DESC, id DESC`,
+      [req.session.userId],
+    );
+    res.json({ results: result.rows });
   } catch (error) {
     next(error);
   }

@@ -36,6 +36,13 @@ const state = {
   leaderboard: [],
   leaderboardError: "",
   leaderboardRequest: 0,
+  matcherQuestions: [],
+  matcherAnswers: {},
+  matcherIndex: 0,
+  matcherResult: null,
+  matcherHistory: [],
+  matcherError: "",
+  matcherLoading: false,
 };
 
 const STUDY_PERSONALITY_PROFILES = {
@@ -480,6 +487,17 @@ function renderSetup() {
               <p class="form-footnote">A few minutes, a fresh perspective. That\u2019s the whole plan.</p>
             </div>
           </form>`}
+        <section class="matcher-promo">
+          <div>
+            <div class="eyebrow"><span class="eyebrow-line"></span> Separate survey</div>
+            <h3>Which Study Tools Fit You?</h3>
+            <p>Find tools that match how you plan, focus, and learn. Sign in to save your results.</p>
+          </div>
+          <button class="secondary-button" type="button" data-action="start-matcher" ${state.matcherLoading ? "disabled" : ""}>
+            ${state.matcherLoading ? "Loading..." : "Start Study Tool Matcher"}
+          </button>
+          ${state.matcherError ? `<p class="matcher-error" role="alert">${escapeHTML(state.matcherError)}</p>` : ""}
+        </section>
       </section>
     </main>`, "setup");
 }
@@ -713,9 +731,137 @@ function renderResults() {
     </main>`, "results");
 }
 
+async function startMatcher() {
+  if (!state.user) {
+    state.matcherError = "Sign in to use the Study Tool Matcher and save your results.";
+    state.authModal = "login";
+    state.authError = state.matcherError;
+    render();
+    return;
+  }
+  state.matcherLoading = true;
+  state.matcherError = "";
+  renderSetup();
+  try {
+    const [questionResponse, historyResponse] = await Promise.all([
+      api("/api/matcher/questions"),
+      api("/api/matcher/results"),
+    ]);
+    state.matcherQuestions = questionResponse.questions;
+    state.matcherHistory = historyResponse.results || [];
+    state.matcherAnswers = {};
+    state.matcherIndex = 0;
+    state.matcherResult = null;
+    state.matcherLoading = false;
+    state.screen = "matcher";
+    render();
+  } catch (error) {
+    state.matcherLoading = false;
+    state.matcherError = error.message;
+    if (error.message.includes("Unauthorized")) {
+      state.authModal = "login";
+      state.authError = state.matcherError;
+    }
+    render();
+  }
+}
+
+function renderMatcherQuestion() {
+  const question = state.matcherQuestions[state.matcherIndex];
+  if (!question) return renderSetup();
+  const answer = state.matcherAnswers[question.id];
+  const progress = Math.round(((state.matcherIndex + 1) / state.matcherQuestions.length) * 100);
+  app.innerHTML = shell(`<main class="matcher-layout reveal">
+    <div class="matcher-heading">
+      <div class="eyebrow"><span class="eyebrow-line"></span> Study Tool Matcher</div>
+      <h1>Which Study Tools Fit You?</h1>
+      <p>Choose what fits you right now. There are no right or wrong answers.</p>
+    </div>
+    <div class="progress-labels"><span>Question ${state.matcherIndex + 1} of ${state.matcherQuestions.length}</span><span>${progress}%</span></div>
+    <div class="progress-track"><div class="progress-fill" style="width:${progress}%"></div></div>
+    <section class="matcher-question">
+      <h2>${escapeHTML(question.text)}</h2>
+      <div class="matcher-choices">${question.choices.map((choice) => `
+        <label class="matcher-choice" data-selected="${answer === choice.id}">
+          <input type="radio" name="matcherChoice" value="${escapeHTML(choice.id)}" ${answer === choice.id ? "checked" : ""}>
+          <span>${escapeHTML(choice.text)}</span>
+        </label>`).join("")}</div>
+      ${state.matcherError ? `<p class="matcher-error" role="alert">${escapeHTML(state.matcherError)}</p>` : ""}
+      <div class="matcher-actions">
+        <button class="secondary-button" type="button" data-action="matcher-back" ${state.matcherIndex === 0 ? "disabled" : ""}>Back</button>
+        ${state.matcherIndex < state.matcherQuestions.length - 1
+          ? `<button class="primary-button" type="button" data-action="matcher-next" ${!answer ? "disabled" : ""}>Next →</button>`
+          : `<button class="primary-button" type="button" data-action="matcher-submit" ${!answer || state.matcherLoading ? "disabled" : ""}>${state.matcherLoading ? "Saving..." : "See my matches →"}</button>`}
+      </div>
+    </section>
+  </main>`, "matcher");
+}
+
+function renderMatcherResults() {
+  const result = state.matcherResult;
+  if (!result) return renderSetup();
+  const previousTop = state.matcherHistory[0]?.ranking?.[0];
+  const currentTop = result.ranking[0];
+  const change = previousTop
+    ? `<p class="matcher-change">${previousTop.id === currentTop.id
+      ? `Your top match is still ${escapeHTML(currentTop.name)}.`
+      : `Your top match changed from ${escapeHTML(previousTop.name)} to ${escapeHTML(currentTop.name)}.`}</p>`
+    : "";
+  app.innerHTML = shell(`<main class="matcher-results-layout reveal">
+    <section class="results-hero matcher-results-hero">
+      <div class="results-copy">
+        <div class="eyebrow"><span class="eyebrow-line"></span> Your study tool matches</div>
+        <h1>${escapeHTML(result.bestGroup.name)}</h1>
+        <p>Best-fit group · ${result.bestGroup.matchPercent}% average match</p>
+        ${change}
+        <p class="matcher-caveat">${escapeHTML(result.note || "")}</p>
+      </div>
+    </section>
+    <section class="matcher-ranking" aria-label="Study tools ranked by match">
+      ${result.ranking.map((tool) => `<article class="matcher-tool-card">
+        <div class="matcher-tool-top"><span class="matcher-rank">#${tool.rank}</span><div><h2>${escapeHTML(tool.name)}</h2><span>${escapeHTML(tool.groupName)}</span></div><strong>${tool.matchPercent}%</strong></div>
+        ${tool.rank === 7 ? '<p class="matcher-neutral-note">Less helpful for you right now</p>' : ""}
+        <div class="personality-bar-track"><div class="personality-bar-fill" style="width:${tool.matchPercent}%"></div></div>
+        <p>${escapeHTML(tool.blurb)}</p><p><strong>Try this week:</strong> ${escapeHTML(tool.firstStep)}</p>
+      </article>`).join("")}
+    </section>
+    <section class="matcher-groups">
+      <h2>Best-fit groups</h2>
+      ${result.groupScores.map((group) => `<p>${escapeHTML(group.name)} <strong>${group.matchPercent}%</strong></p>`).join("")}
+    </section>
+    <div class="matcher-actions">
+      <button class="primary-button" type="button" data-action="matcher-retake">Retake</button>
+      <button class="secondary-button" type="button" data-action="back-to-setup">Back to quizzes</button>
+    </div>
+  </main>`, "matcher-results");
+}
+
+async function submitMatcher() {
+  state.matcherLoading = true;
+  state.matcherError = "";
+  renderMatcherQuestion();
+  try {
+    const result = await api("/api/matcher/submit", {
+      method: "POST",
+      body: JSON.stringify({ answers: state.matcherAnswers }),
+    });
+    state.matcherResult = result;
+    state.matcherHistory = [result, ...state.matcherHistory];
+    state.matcherLoading = false;
+    state.screen = "matcher-results";
+    render();
+  } catch (error) {
+    state.matcherLoading = false;
+    state.matcherError = error.message;
+    renderMatcherQuestion();
+  }
+}
+
 function render() {
   if (state.screen === "quiz") renderQuiz();
   else if (state.screen === "results") renderResults();
+  else if (state.screen === "matcher") renderMatcherQuestion();
+  else if (state.screen === "matcher-results") renderMatcherResults();
   else renderSetup();
 }
 
@@ -889,6 +1035,11 @@ app.addEventListener("change", (event) => {
       choice.dataset.selected = String(radio?.checked || false);
     });
     renderQuiz();
+  } else if (target.name === "matcherChoice") {
+    const question = state.matcherQuestions[state.matcherIndex];
+    if (question) state.matcherAnswers[question.id] = target.value;
+    state.matcherError = "";
+    renderMatcherQuestion();
   }
 });
 
@@ -915,6 +1066,19 @@ app.addEventListener("click", (event) => {
   if (action === "retry-quiz") retryQuiz();
   if (action === "next-question") goToNextQuestion();
   if (action === "prev-question") goToPrevQuestion();
+  if (action === "start-matcher") startMatcher();
+  if (action === "matcher-back" && state.matcherIndex > 0) {
+    state.matcherIndex--;
+    state.matcherError = "";
+    renderMatcherQuestion();
+  }
+  if (action === "matcher-next" && state.matcherAnswers[state.matcherQuestions[state.matcherIndex]?.id]) {
+    state.matcherIndex++;
+    state.matcherError = "";
+    renderMatcherQuestion();
+  }
+  if (action === "matcher-submit" && state.matcherAnswers[state.matcherQuestions[state.matcherIndex]?.id]) submitMatcher();
+  if (action === "matcher-retake") startMatcher();
 });
 
 // Initialize Google Sign-In when the page loads
