@@ -11,6 +11,7 @@ const { OAuth2Client } = require("google-auth-library");
 const PORT = Number(process.env.PORT || 5000);
 const QUESTIONS_PER_GAME = 5;
 const DIFFICULTIES = new Set(["easy", "medium", "hard"]);
+const UNAVAILABLE_QUIZ_IDS = new Set(["mixed", "science", "geography", "history"]);
 const SALT_ROUNDS = 12;
 const SESSION_SECRET = process.env.SESSION_SECRET;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -360,9 +361,10 @@ app.get("/api/quizzes", async (req, res, next) => {
         ) ELSE COUNT(q.id)::int END AS "questionCount"
       FROM quiz_categories c
       LEFT JOIN quiz_questions q ON c.id = q.category_id
+       WHERE c.id <> ALL($1::text[])
       GROUP BY c.id, c.title, c.description, c.sort_order
       ORDER BY c.sort_order, c.title
-    `);
+    `, [Array.from(UNAVAILABLE_QUIZ_IDS)]);
     res.json({ quizzes: result.rows });
   } catch (error) {
     next(error);
@@ -371,6 +373,9 @@ app.get("/api/quizzes", async (req, res, next) => {
 
 app.get("/api/quizzes/:id", async (req, res, next) => {
   const { id } = req.params;
+  if (UNAVAILABLE_QUIZ_IDS.has(id)) {
+    return res.status(404).json({ error: "Quiz not found." });
+  }
   try {
     const categoryResult = await pool.query(
       "SELECT id, title, description FROM quiz_categories WHERE id = $1",
@@ -540,6 +545,9 @@ function getStudySkillsFeedback(totalScore) {
 app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
   const { id } = req.params;
   const { answers, questionIds } = req.body || {};
+  if (UNAVAILABLE_QUIZ_IDS.has(id)) {
+    return res.status(404).json({ error: "Quiz not found." });
+  }
 
   if (!Array.isArray(answers) || !Array.isArray(questionIds) ||
       answers.length !== questionIds.length ||
@@ -701,6 +709,9 @@ app.post("/api/sessions", async (req, res, next) => {
   }
   if (typeof category !== "string" || !DIFFICULTIES.has(difficulty)) {
     return res.status(400).json({ error: "Choose a valid quiz and difficulty." });
+  }
+  if (UNAVAILABLE_QUIZ_IDS.has(category)) {
+    return res.status(400).json({ error: "That quiz category is not available." });
   }
 
   try {
@@ -888,13 +899,18 @@ app.get("/api/leaderboard", async (req, res, next) => {
                 WHERE q.id = ANY(s.question_ids) AND q.is_scored) AS "scoreTotal",
                s.duration_seconds AS "durationSeconds", s.completed_at AS "completedAt"
         FROM quiz_sessions s
-        WHERE s.status = 'completed' AND s.category_id <> 'club_carnival'
+         WHERE s.status = 'completed'
+           AND s.category_id <> 'club_carnival'
+           AND s.category_id <> ALL($1::text[])
         ORDER BY s.score DESC, s.duration_seconds ASC, s.completed_at DESC
         LIMIT 10
-      `);
+       `, [Array.from(UNAVAILABLE_QUIZ_IDS)]);
     } else {
       if (typeof category !== "string") {
         return res.status(400).json({ error: "Choose a valid quiz category." });
+      }
+      if (UNAVAILABLE_QUIZ_IDS.has(category)) {
+        return res.status(400).json({ error: "That quiz category is not available." });
       }
       const categoryResult = await pool.query(
         "SELECT id FROM quiz_categories WHERE id = $1",
