@@ -361,6 +361,7 @@ button { color: inherit; }
 .matcher-rank { color: var(--coral); font-family: var(--mono); font-weight: 700; }
 .matcher-tool-card p { color: var(--muted); font-size: 12px; line-height: 1.55; }
 .matcher-neutral-note { color: var(--muted); font-size: 10px !important; }
+.blocker-care-note { padding: 12px; border-left: 3px solid var(--sun); background: rgba(240, 198, 98, .15); color: var(--ink) !important; }
 .matcher-groups h2 { margin-top: 0; }
 .matcher-groups p { display: flex; justify-content: space-between; border-bottom: 1px solid var(--line); padding-bottom: 8px; font-size: 13px; }
 .matcher-groups p:last-child { border: 0; }

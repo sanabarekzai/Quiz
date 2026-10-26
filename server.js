@@ -9,6 +9,8 @@ const cookieParser = require("cookie-parser");
 const { OAuth2Client } = require("google-auth-library");
 const toolMatcherData = require("./data/tool-matcher.json");
 const { publicQuestions: getPublicMatcherQuestions, validateAnswers: validateMatcherAnswers, calculateResults: calculateMatcherResults } = require("./lib/tool-matcher");
+const studyBlockerData = require("./data/study-blockers.json");
+const { calculateStudyBlockerResult } = require("./lib/study-blocker");
 
 const PORT = Number(process.env.PORT || 5000);
 const QUESTIONS_PER_GAME = 5;
@@ -631,6 +633,9 @@ app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
       !questionIds.every((questionId) => Number.isSafeInteger(questionId) && questionId > 0)) {
     return res.status(400).json({ error: "Answers and question IDs must be matching arrays." });
   }
+  if (id === "study_blockers" && answers.length !== studyBlockerData.questions.length) {
+    return res.status(400).json({ error: "Answer all 12 study blocker questions before submitting." });
+  }
 
   try {
     const questionsResult = id === "mixed"
@@ -740,6 +745,15 @@ app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
       };
       await saveQuizAttempt(req.session.userId, id, questionIds, answers, response);
       return res.json(response);
+    } else if (categoryId === "study_blockers") {
+      let blockerResponse;
+      try {
+        blockerResponse = calculateStudyBlockerResult(questions, answers, studyBlockerData);
+      } catch (error) {
+        return res.status(500).json({ error: error.message });
+      }
+      await saveQuizAttempt(req.session.userId, id, questionIds, answers, blockerResponse);
+      return res.json(blockerResponse);
     } else if (categoryId === 'student_wellness') {
       for (let i = 0; i < Math.min(answers.length, questions.length); i++) {
         const question = questions[i];

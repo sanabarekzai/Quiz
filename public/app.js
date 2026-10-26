@@ -372,6 +372,7 @@ function renderMyRecords() {
         const result = record.result || {};
         const isOpinionSurvey = record.categoryId === "club_carnival";
         const isPersonalitySurvey = record.categoryId === "study_personality";
+        const isBlockerSurvey = record.categoryId === "study_blockers";
         const profileNames = (result.primaryProfiles || [])
           .map((profileId) => STUDY_PERSONALITY_PROFILES[profileId]?.name.replace(/^The /, ""))
           .filter(Boolean);
@@ -391,6 +392,8 @@ function renderMyRecords() {
           ? "Opinion responses saved"
           : isPersonalitySurvey
             ? `Study profile: ${profileNames.join(" + ") || "saved"}`
+            : isBlockerSurvey
+              ? `Study patterns: ${result.profileSummary || "saved"}`
             : result.maxScore
               ? `${record.score} / ${result.maxScore} points`
               : record.percentage !== null
@@ -529,6 +532,7 @@ function renderQuiz() {
   const current = Math.min(total, state.currentQuestionIndex + 1);
   const percent = Math.round(((state.currentQuestionIndex + (state.answers[state.currentQuestionIndex] !== undefined ? 1 : 0)) / total) * 100);
   const currentQuestion = state.questions[state.currentQuestionIndex];
+  const isBlockerSurvey = (state.currentQuiz?.id || state.selectedQuizId) === "study_blockers";
   
   app.innerHTML = shell(`
     <main class="quiz-layout reveal">
@@ -569,11 +573,11 @@ function renderQuiz() {
           </form>
         </section>
         <aside class="aside-card">
-          <div class="aside-label">A friendly reminder</div>
-          <h3>This isn\u2019t a test.</h3>
-          <p>It\u2019s a small detour for your brain. Take a breath, trust what you know, and enjoy the surprise.</p>
+          <div class="aside-label">${isBlockerSurvey ? "Before you begin" : "A friendly reminder"}</div>
+          <h3>${isBlockerSurvey ? "Think about a normal school week." : "This isn\u2019t a test."}</h3>
+          <p>${isBlockerSurvey ? "Pick the answer that is most true for you, even if it’s not flattering. Honest answers give more useful tips." : "It\u2019s a small detour for your brain. Take a breath, trust what you know, and enjoy the surprise."}</p>
           <div class="aside-rule"></div>
-          <div class="aside-note">Your answer stays hidden until you lock it in. No peeking ahead.</div>
+          <div class="aside-note">${isBlockerSurvey ? "There are no right or wrong answers. Your reflection prompts are private and are not saved." : "Your answer stays hidden until you lock it in. No peeking ahead."}</div>
         </aside>
       </div>
     </main>`, "quiz");
@@ -632,6 +636,56 @@ function renderStudyPersonalityResults(result) {
   </div>`;
 }
 
+function renderStudyBlockerResults(result) {
+  const weekLabels = {
+    S: ["Day 1", "Days 2–3", "Days 4–5", "Day 6", "Day 7"],
+    D: ["Day 1", "Days 2–3", "Days 4–5", "Day 6", "Day 7"],
+    E: ["Day 1", "Days 2–4", "Days 5–6", "Day 7"],
+    P: ["Day 1", "Days 2–5", "Day 6", "Day 7"],
+    M: ["Day 1", "Days 2–5", "Day 6", "Day 7"],
+  };
+  const focusProfiles = result.isSteadyBuilder
+    ? [{ id: "steady", ...result.steadyBuilder }]
+    : (result.primaryProfiles || [])
+      .map((id) => result.profiles?.find((profile) => profile.id === id))
+      .filter(Boolean);
+  const bars = (result.profiles || []).map((profile) => {
+    const percent = Math.max(0, Math.min(100, Number(profile.percentage) || 0));
+    return `<div class="personality-bar-row">
+      <div class="personality-bar-label"><span>${escapeHTML(profile.emoji)} ${escapeHTML(profile.name)}</span><strong>${percent}%</strong></div>
+      <div class="personality-bar-track" role="progressbar" aria-label="${escapeHTML(profile.name)} match" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}"><div class="personality-bar-fill" style="width:${percent}%"></div></div>
+    </div>`;
+  }).join("");
+  const cards = focusProfiles.map((profile) => `
+    <article class="personality-profile-card">
+      <div class="eyebrow"><span class="eyebrow-line"></span>${escapeHTML(profile.emoji)} Your pattern</div>
+      <h3>${escapeHTML(profile.name)}</h3>
+      <p>${escapeHTML(profile.what || "")}</p>
+      ${profile.why ? `<div class="personality-detail-grid"><div><h4>Why it can happen</h4><p>${escapeHTML(profile.why)}</p></div></div>` : ""}
+      <h4>Fixes to try</h4>
+      <ul>${(profile.fixes || []).map((tip) => `<li>${escapeHTML(tip)}</li>`).join("")}</ul>
+      ${profile.plan?.length ? `<h4>7-day starter plan</h4><ol>${profile.plan.map((step, index) => `<li><strong>${escapeHTML(weekLabels[profile.id]?.[index] || `Day ${index + 1}`)}:</strong> ${escapeHTML(step)}</li>`).join("")}</ol>` : ""}
+      ${profile.tools ? `<p><strong>Tools to try:</strong> ${escapeHTML(profile.tools)}</p>` : ""}
+      ${profile.careNote ? `<p class="blocker-care-note">${escapeHTML(profile.careNote)}</p>` : ""}
+    </article>`).join("");
+  return `<div class="personality-results">
+    <section class="personality-distribution" aria-labelledby="blocker-results-title">
+      <div class="eyebrow"><span class="eyebrow-line"></span> Your response patterns</div>
+      <h3 id="blocker-results-title">${escapeHTML(result.profileSummary || "Your study patterns")}</h3>
+      <p>This is a self-reflection check-in, not a diagnosis or a grade. Patterns can change, and no answer is right or wrong.</p>
+      ${result.blendMessage ? `<p class="personality-blend">${escapeHTML(result.blendMessage)}</p>` : ""}
+      <div class="personality-bars">${bars}</div>
+    </section>
+    <div class="personality-profile-grid">${cards}</div>
+    <section class="personality-reflections" aria-labelledby="blocker-reflections-title">
+      <div class="eyebrow"><span class="eyebrow-line"></span> Reflect privately</div>
+      <h3 id="blocker-reflections-title">Think it over</h3>
+      <ol>${(result.reflections || []).map((prompt) => `<li>${escapeHTML(prompt)}</li>`).join("")}</ol>
+      <p>Your reflection answers are not collected or saved.</p>
+    </section>
+  </div>`;
+}
+
 function renderResults() {
   const result = state.results || {};
   const score = Number(result.score) || 0;
@@ -641,8 +695,10 @@ function renderResults() {
   const categoryId = state.currentQuiz?.id || state.selectedQuizId;
   const isOpinionSurvey = categoryId === "club_carnival";
   const isPersonalitySurvey = categoryId === "study_personality";
+  const isBlockerSurvey = categoryId === "study_blockers";
   const isFeedbackSurvey = categoryId === "student_wellness" || categoryId === "study_skills";
-  const perfectRound = !isOpinionSurvey && !isPersonalitySurvey && percentage === 100;
+  const isSelfReflectionSurvey = isPersonalitySurvey || isBlockerSurvey;
+  const perfectRound = !isOpinionSurvey && !isSelfReflectionSurvey && percentage === 100;
   
   let surveyContent = "";
   
@@ -685,19 +741,19 @@ function renderResults() {
     <main class="results-layout reveal">
       <section class="results-hero" aria-labelledby="results-title">
         <div class="results-copy">
-          <div class="eyebrow"><span class="eyebrow-line"></span> Quiz complete \u00b7 ${escapeHTML(state.playerName)}</div>
-          <h1 id="results-title">${isPersonalitySurvey ? "Your Study Personality" : isOpinionSurvey || isFeedbackSurvey ? "Survey Complete!" : perfectRound ? "Perfect Score!" : "Great Effort!"}</h1>
-          <p>${isPersonalitySurvey ? "A self-reflection tool, not a test. Use these patterns as a starting point, not a label." : isOpinionSurvey ? "Your responses have been saved to your account." : perfectRound ? "You answered all questions correctly! Excellent work." : isFeedbackSurvey ? "Here are your results." : "You've completed the quiz. Review your results below."}</p>
+          <div class="eyebrow"><span class="eyebrow-line"></span> ${isBlockerSurvey ? "Check-in" : "Quiz"} complete \u00b7 ${escapeHTML(state.playerName)}</div>
+          <h1 id="results-title">${isBlockerSurvey ? "Your Study Patterns" : isPersonalitySurvey ? "Your Study Personality" : isOpinionSurvey || isFeedbackSurvey ? "Survey Complete!" : perfectRound ? "Perfect Score!" : "Great Effort!"}</h1>
+          <p>${isBlockerSurvey ? "A self-reflection check-in, not a test or diagnosis. Use these patterns as a starting point, not a label." : isPersonalitySurvey ? "A self-reflection tool, not a test. Use these patterns as a starting point, not a label." : isOpinionSurvey ? "Your responses have been saved to your account." : perfectRound ? "You answered all questions correctly! Excellent work." : isFeedbackSurvey ? "Here are your results." : "You've completed the quiz. Review your results below."}</p>
           ${surveyContent}
           <div class="result-stats">
-            <span class="result-stat"><strong>${escapeHTML(state.currentQuiz?.title || state.selectedQuizId)}</strong> quiz</span>
-            ${isOpinionSurvey || isPersonalitySurvey ? "" : !isFeedbackSurvey ? `
+            <span class="result-stat"><strong>${escapeHTML(state.currentQuiz?.title || state.selectedQuizId)}</strong> ${isBlockerSurvey ? "check-in" : "quiz"}</span>
+            ${isOpinionSurvey || isSelfReflectionSurvey ? "" : !isFeedbackSurvey ? `
               <span class="result-stat"><strong>${escapeHTML(score)}</strong> / ${escapeHTML(total)} correct</span>
               <span class="result-stat"><strong>${escapeHTML(percentage)}%</strong> score</span>` : `
               <span class="result-stat"><strong>${escapeHTML(score)}</strong> / ${escapeHTML(result.maxScore || total)} points</span>`}
           </div>
         </div>
-        ${isOpinionSurvey || isPersonalitySurvey ? "" : `<div class="score-stamp" aria-label="Score ${score} out of ${total}">
+        ${isOpinionSurvey || isSelfReflectionSurvey ? "" : `<div class="score-stamp" aria-label="Score ${score} out of ${total}">
           <span class="score-number">${escapeHTML(score)}<span style="font-size:.52em">/${escapeHTML(result.maxScore || total)}</span></span>
           <span class="score-caption">your score</span>
         </div>`}
@@ -705,9 +761,9 @@ function renderResults() {
       <section class="results-summary" aria-labelledby="summary-title">
         <div class="summary-heading">
           <div class="eyebrow"><span class="eyebrow-line"></span> Results Summary</div>
-          <h2 id="summary-title">${isPersonalitySurvey ? "Your study patterns and next steps" : isOpinionSurvey || isFeedbackSurvey ? "Your Responses" : "Question Breakdown"}</h2>
+          <h2 id="summary-title">${isBlockerSurvey ? "Patterns and next steps" : isPersonalitySurvey ? "Your study patterns and next steps" : isOpinionSurvey || isFeedbackSurvey ? "Your Responses" : "Question Breakdown"}</h2>
         </div>
-        ${isPersonalitySurvey ? renderStudyPersonalityResults(result) : `<div class="results-list">
+        ${isBlockerSurvey ? renderStudyBlockerResults(result) : isPersonalitySurvey ? renderStudyPersonalityResults(result) : `<div class="results-list">
           ${state.questions.map((question, index) => {
             const answer = state.answers[index];
             const resultItem = resultDetails[index] || {};
@@ -954,7 +1010,7 @@ async function submitQuiz() {
     });
     
     const categoryId = state.currentQuiz?.id || state.selectedQuizId;
-    const allowsNoNumericScore = categoryId === "club_carnival" || categoryId === "study_personality";
+    const allowsNoNumericScore = categoryId === "club_carnival" || categoryId === "study_personality" || categoryId === "study_blockers";
     if (!result || (!allowsNoNumericScore && typeof result.score !== "number")) {
       throw new Error("We couldn\u2019t calculate your score. Please try again.");
     }
