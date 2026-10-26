@@ -269,6 +269,12 @@ function closeAuthModal() {
 
 function shell(content, screenName = "setup") {
   const sectionLabel = screenName === "quiz" ? "A round in progress" : screenName === "results" ? "Your round, wrapped up" : "A quick brain break";
+  const homeNavigation = screenName === "setup" ? `
+    <nav class="site-nav" aria-label="Main navigation">
+      <a href="#quiz-library">Explore</a>
+      <a href="#matcher-promo">Study tools</a>
+      ${state.user ? '<a href="#your-progress">My progress</a>' : ""}
+    </nav>` : "";
   const authBar = state.user ? `
     <div class="auth-bar">
       <span class="welcome-message">Welcome, ${escapeHTML(state.user.displayName)}</span>
@@ -281,17 +287,18 @@ function shell(content, screenName = "setup") {
   return `
     <div class="app-frame">
       <header class="topbar">
-        <a class="brand" href="/" aria-label="Quiz App home">
-          <img class="brand-logo" src="/study-smart-logo.jpg" alt="Quiz App" width="520" height="375">
+        <a class="brand" href="/" aria-label="Study Smart home">
+          <img class="brand-logo" src="/study-smart-logo.jpg" alt="Study Smart" width="520" height="375">
         </a>
-        <div class="top-note"><span class="top-note-mark" aria-hidden="true"></span>Quiz App</div>
+        ${homeNavigation}
+        <div class="top-note"><span class="top-note-mark" aria-hidden="true"></span>Study Smart</div>
         ${authBar}
       </header>
       ${content}
       ${renderAuthModal()}
       <footer class="app-footer">
-        <span>Quiz App</span>
-        <span>Test your knowledge</span>
+        <span>Study Smart</span>
+        <span>Build momentum, one session at a time</span>
       </footer>
     </div>`;
 }
@@ -416,7 +423,7 @@ function renderMyRecords() {
         </article>`;
       }).join("")}</div>`;
 
-  return `<section class="account-records" aria-labelledby="account-records-title">
+  return `<section class="account-records" id="your-progress" aria-labelledby="account-records-title">
     <div class="account-records-heading">
       <div>
         <div class="eyebrow"><span class="eyebrow-line"></span> Saved to your account</div>
@@ -431,19 +438,26 @@ function renderSetup() {
   app.innerHTML = shell(`
     <main class="setup-layout reveal">
       <section class="intro-panel" aria-labelledby="intro-title">
-        <div class="intro-top eyebrow eyebrow-light"><span class="eyebrow-line"></span> Quiz App</div>
+        <div class="intro-top eyebrow eyebrow-light"><span class="eyebrow-line"></span> Study Smart · Learning hub</div>
         <div class="intro-copy">
-          <h1 id="intro-title">Quiz App</h1>
-          <p>Test your knowledge and track your progress through our quizzes.</p>
+          <h1 id="intro-title">Study smarter.<em>Start anywhere.</em></h1>
+          <p>Build confidence, find your rhythm, and make your next study session count.</p>
+          <div class="hero-actions">
+            <a class="primary-button hero-primary" href="#quiz-library">Explore quizzes <span aria-hidden="true">↘</span></a>
+            <a class="hero-text-link" href="#matcher-promo">Find a tool that fits <span aria-hidden="true">→</span></a>
+          </div>
+        </div>
+        <div class="hero-visual">
+          <img class="hero-study-photo" src="/study-session.webp" alt="A student writing in a notebook at her desk">
         </div>
         <div class="orbit-tag" aria-hidden="true">Knowledge<br>is power<br>here</div>
-        <div class="intro-foot"><span>Track your learning journey</span><span>01 / 03</span></div>
+        <div class="intro-foot"><span>Study smart · learn your way</span><span>${String(state.quizzes.length).padStart(2, "0")} ACTIVITIES</span></div>
       </section>
-      <section class="setup-content" aria-labelledby="setup-title">
+      <section class="setup-content" id="quiz-library" aria-labelledby="setup-title">
         <div class="setup-heading">
-          <div class="eyebrow"><span class="eyebrow-line"></span> Configure your quiz</div>
-          <h2 id="setup-title">Set up your quiz</h2>
-          <p>Choose a quiz category and begin your quiz.</p>
+          <div class="eyebrow"><span class="eyebrow-line"></span> Choose your next step</div>
+          <h2 id="setup-title">Explore the library</h2>
+          <p>Pick an activity that meets you where you are today.</p>
         </div>
         ${renderMyRecords()}
         ${state.setupError ? `
@@ -465,16 +479,22 @@ function renderSetup() {
             <div class="empty-state" role="status"><strong>No quizzes to pick from just yet.</strong>There aren\u2019t any available topics right now. Check back in a little while.</div>` :
           `<form class="setup-form" id="setup-form">
             <fieldset class="form-section">
-              <legend class="section-heading">Choose a quiz <span class="section-hint">Pick one</span></legend>
+              <legend class="section-heading">All study activities <span class="section-hint">Select one to begin</span></legend>
               <div class="category-grid">
                 ${state.quizzes.map((quiz, index) => {
                   const selected = state.selectedQuizId === quiz.id;
                   const symbol = String(index + 1).padStart(2, "0");
                   const quizId = `quiz-${index}`;
+                  const kind = quiz.id === "study_blockers" ? "SELF-REFLECTION" :
+                    quiz.id === "study_personality" ? "STUDY HABITS" :
+                    quiz.id === "club_carnival" ? "COMMUNITY" :
+                    quiz.id === "student_wellness" ? "WELLBEING" :
+                    quiz.id === "study_skills" ? "PRACTICE" : "QUIZ";
                   return `<label class="category-choice" data-selected="${selected}" for="${quizId}">
                     <input id="${quizId}" type="radio" name="quizId" value="${escapeHTML(quiz.id)}" ${selected ? "checked" : ""} required>
                     <span class="category-symbol" aria-hidden="true">${symbol}</span>
                     <span class="category-copy">
+                      <span class="category-kind">${kind}</span>
                       <span class="category-title">${escapeHTML(quiz.title || quiz.id)}</span>
                       <span class="category-description">${escapeHTML(quiz.description || "")}</span>
                       <span class="category-count">${escapeHTML(quiz.questionCount || 0)} questions</span>
@@ -487,13 +507,13 @@ function renderSetup() {
               <button class="primary-button start-button" type="submit" ${state.starting || !state.selectedQuizId ? "disabled" : ""}>
                 <span>${state.starting ? "Loading quiz..." : "Start Quiz"}</span><span class="button-arrow" aria-hidden="true">${state.starting ? "\u2026" : "\u2192"}</span>
               </button>
-              <p class="form-footnote">A few minutes, a fresh perspective. That\u2019s the whole plan.</p>
+              <p class="form-footnote">Your progress saves to your account when you’re signed in.</p>
             </div>
           </form>`}
-        <section class="matcher-promo">
+        <section class="matcher-promo" id="matcher-promo">
           <div>
             <div class="eyebrow"><span class="eyebrow-line"></span> Separate survey</div>
-            <h3>Which Study Tools Fit You?</h3>
+            <h3>Which study tools fit you?</h3>
             <p>Find tools that match how you plan, focus, and learn. Sign in to save your results.</p>
           </div>
           <button class="secondary-button" type="button" data-action="start-matcher" ${state.matcherLoading ? "disabled" : ""}>
