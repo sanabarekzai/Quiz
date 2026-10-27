@@ -268,3 +268,171 @@ test("study personality results accept an unscored submission and show saved pro
   assert.match(app.innerHTML, /Recent profiles/);
   assert.match(app.innerHTML, /Sprinter \+ Perfectionist Planner/);
 });
+
+test("each available activity can be completed, shows its result, and can be retried", async (t) => {
+  const activities = [
+    {
+      id: "club_carnival",
+      title: "Club Carnival",
+      count: 5,
+      result: {
+        score: null,
+        totalQuestions: 5,
+        percentage: null,
+        feedback: "Thanks for sharing your thoughts about the club.",
+      },
+      resultText: "Thanks for sharing your thoughts about the club.",
+    },
+    {
+      id: "student_wellness",
+      title: "Student Wellness Survey",
+      count: 12,
+      result: {
+        score: 22,
+        totalQuestions: 12,
+        tier: "Doing okay",
+        feedback: "Wellness feedback",
+        recommendation: "Wellness recommendation",
+        maxScore: 36,
+      },
+      resultText: "Wellness feedback",
+    },
+    {
+      id: "study_skills",
+      title: "Study Skills Level-Up Quiz",
+      count: 10,
+      result: {
+        score: 20,
+        totalQuestions: 10,
+        level: 3,
+        tier: "Growing",
+        emoji: "📘",
+        feedback: "Study skills feedback",
+        tips: ["Try one practice strategy."],
+        nextQuest: "Plan a study session.",
+        maxScore: 30,
+      },
+      resultText: "Study skills feedback",
+    },
+    {
+      id: "study_personality",
+      title: "What's Your Study Personality?",
+      count: 12,
+      result: {
+        score: null,
+        totalQuestions: 12,
+        percentage: null,
+        profiles: [{ id: "S", name: "Sprinter", count: 12, percentage: 100 }],
+        primaryProfiles: ["S"],
+        profileSummary: "Sprinter",
+        feedback: "Sprinter",
+      },
+      resultText: "Your Study Personality",
+    },
+    {
+      id: "study_blockers",
+      title: "Study Blocker Check-In",
+      count: 12,
+      result: {
+        score: null,
+        totalQuestions: 12,
+        category: "Starting Struggle",
+        feedback: "A supportive next step.",
+        tips: ["Start with five minutes."],
+        results: [],
+      },
+      resultText: "Your Study Patterns",
+    },
+  ];
+
+  for (const activity of activities) {
+    await t.test(activity.id, async () => {
+      const app = new MockApp();
+      const questions = Array.from({ length: activity.count }, (_, index) => ({
+        id: index + 101,
+        prompt: `${activity.title} question ${index + 1}`,
+        options: ["Option A", "Option B", "Option C", "Option D"],
+        isScored: false,
+      }));
+      const firstQuestionTitle = `${activity.title.replace(/'/g, "&#39;")} question 1`;
+      const firstQuestionPattern = new RegExp(firstQuestionTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+      let submittedPayload;
+      const fetch = async (url, options = {}) => {
+        if (url === "/api/me") {
+          return jsonResponse({ user: { id: 9, username: "survey-player", displayName: "Survey Player" } });
+        }
+        if (url === "/api/me/records") return jsonResponse({ records: [] });
+        if (url === "/api/quizzes") {
+          return jsonResponse({
+            quizzes: [{ id: activity.id, title: activity.title, questionCount: activity.count }],
+          });
+        }
+        if (url === `/api/quizzes/${activity.id}`) {
+          return jsonResponse({
+            quiz: { id: activity.id, title: activity.title },
+            questions,
+            totalQuestions: questions.length,
+          });
+        }
+        if (url === `/api/quizzes/${activity.id}/submit`) {
+          submittedPayload = JSON.parse(options.body);
+          return jsonResponse(activity.result);
+        }
+        throw new Error(`Unexpected API request: ${url}`);
+      };
+      class MockElement {
+        constructor(action) {
+          this.action = action;
+        }
+        closest() {
+          return { dataset: { action: this.action } };
+        }
+      }
+
+      vm.runInNewContext(appSource, {
+        document: { querySelector: () => app },
+        window: { addEventListener() {} },
+        fetch,
+        HTMLFormElement: MockForm,
+        HTMLInputElement: MockInput,
+        FormData: MockFormData,
+        Element: MockElement,
+        console,
+      });
+
+      const flush = async () => {
+        await new Promise((resolve) => setImmediate(resolve));
+        await new Promise((resolve) => setImmediate(resolve));
+      };
+      await flush();
+
+      app.listeners.get("change")({ target: new MockInput("quizId", activity.id) });
+      app.listeners.get("submit")({
+        preventDefault() {},
+        target: new MockForm("setup-form", { quizId: activity.id }),
+      });
+      await flush();
+      assert.match(app.innerHTML, firstQuestionPattern);
+
+      for (let index = 0; index < questions.length; index++) {
+        app.listeners.get("change")({ target: new MockInput("answer", String(index % 4)) });
+        if (index < questions.length - 1) {
+          app.listeners.get("click")({ target: new MockElement("next-question") });
+        }
+      }
+      app.listeners.get("submit")({
+        preventDefault() {},
+        target: new MockForm("answer-form", {}),
+      });
+      await flush();
+
+      assert.equal(submittedPayload.answers.length, activity.count);
+      assert.deepEqual(Array.from(submittedPayload.questionIds), questions.map((question) => question.id));
+      assert.match(app.innerHTML, new RegExp(activity.resultText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+
+      app.listeners.get("click")({ target: new MockElement("retry-quiz") });
+      assert.match(app.innerHTML, new RegExp(`Question 1 of ${activity.count}`));
+      assert.match(app.innerHTML, firstQuestionPattern);
+    });
+  }
+});
