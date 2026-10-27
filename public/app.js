@@ -25,6 +25,20 @@ const state = {
   myHistory: [],
   historyError: "",
   recordsError: "",
+  communityResults: [],
+  communityStatus: "idle",
+  communityError: "",
+  communityCategory: "all",
+  adminQuestions: [],
+  adminCategories: [],
+  adminError: "",
+  adminNotice: "",
+  adminLoading: false,
+  adminEditingId: null,
+  adminCsvText: "",
+  adminCsvRows: [],
+  adminCsvError: "",
+  adminCsvNotice: "",
   setupError: "",
   starting: false,
   currentQuiz: null,
@@ -176,7 +190,7 @@ async function registerUser(form) {
     state.authModal = "none";
     state.authLoading = false;
     state.registerData = { username: "", password: "", firstName: "", lastName: "", displayName: "" };
-    await Promise.all([loadMyRecords(), loadMyHistory()]);
+    await Promise.all([loadMyRecords(), loadMyHistory(), loadCommunityResults()]);
     render();
   } catch (error) {
     state.authError = error.message || "Registration failed.";
@@ -208,7 +222,7 @@ async function loginUser(form) {
     state.authModal = "none";
     state.authLoading = false;
     state.loginData = { username: "", password: "" };
-    await Promise.all([loadMyRecords(), loadMyHistory()]);
+    await Promise.all([loadMyRecords(), loadMyHistory(), loadCommunityResults()]);
     render();
   } catch (error) {
     state.authError = error.message || "Login failed.";
@@ -223,8 +237,11 @@ async function logoutUser() {
     state.user = null;
     state.myRecords = [];
     state.myHistory = [];
+    state.communityResults = [];
+    state.communityStatus = "idle";
     state.historyError = "";
     state.recordsError = "";
+    if (state.screen === "admin") state.screen = "setup";
     render();
   } catch (error) {
     console.error("Logout error:", error);
@@ -235,13 +252,15 @@ async function checkAuthStatus() {
   try {
     const result = await api("/api/me");
     state.user = result.user;
-    await Promise.all([loadMyRecords(), loadMyHistory()]);
+    await Promise.all([loadMyRecords(), loadMyHistory(), loadCommunityResults()]);
     render();
   } catch (error) {
     state.user = null;
     state.myRecords = [];
     state.myHistory = [];
     state.historyError = "";
+    state.communityResults = [];
+    state.communityStatus = "idle";
     render();
   }
 }
@@ -276,6 +295,191 @@ async function loadMyHistory() {
   }
 }
 
+async function loadCommunityResults() {
+  if (!state.user) {
+    state.communityResults = [];
+    state.communityStatus = "idle";
+    state.communityError = "";
+    return;
+  }
+  state.communityStatus = "loading";
+  state.communityError = "";
+  try {
+    const query = state.communityCategory === "all" ? "" : `?category=${encodeURIComponent(state.communityCategory)}`;
+    const result = await api(`/api/community-results${query}`);
+    state.communityResults = Array.isArray(result.entries) ? result.entries : [];
+    state.communityStatus = "loaded";
+  } catch (error) {
+    state.communityError = error.message || "Community results could not be loaded.";
+    state.communityStatus = "error";
+  }
+  render();
+}
+
+async function loadAdminQuestions() {
+  if (state.user?.role !== "admin") return;
+  state.adminLoading = true;
+  state.adminError = "";
+  state.adminNotice = "";
+  renderAdmin();
+  try {
+    const result = await api("/api/admin/questions");
+    state.adminCategories = Array.isArray(result.categories) ? result.categories : [];
+    state.adminQuestions = Array.isArray(result.questions) ? result.questions : [];
+    state.adminLoading = false;
+  } catch (error) {
+    state.adminLoading = false;
+    state.adminError = error.message || "Questions could not be loaded.";
+  }
+  renderAdmin();
+}
+
+async function saveAdminQuestion(form) {
+  const formData = new FormData(form);
+  const question = {
+    categoryId: formData.get("categoryId"),
+    difficulty: formData.get("difficulty"),
+    prompt: formData.get("prompt"),
+    options: [0, 1, 2, 3].map((index) => formData.get(`choice${index}`)),
+    correctIndex: Number(formData.get("correctIndex")),
+    explanation: formData.get("explanation"),
+  };
+  state.adminLoading = true;
+  state.adminError = "";
+  state.adminNotice = "";
+  renderAdmin();
+  try {
+    await api(state.adminEditingId ? `/api/admin/questions/${state.adminEditingId}` : "/api/admin/questions", {
+      method: state.adminEditingId ? "PUT" : "POST",
+      body: JSON.stringify(question),
+    });
+    state.adminEditingId = null;
+    await loadAdminQuestions();
+    state.adminNotice = "Question saved.";
+    renderAdmin();
+  } catch (error) {
+    state.adminLoading = false;
+    state.adminError = error.message || "Question could not be saved.";
+    renderAdmin();
+  }
+}
+
+async function handleCsvFile(input) {
+  const file = input.files?.[0];
+  if (!file) return;
+  state.adminCsvError = "";
+  state.adminCsvNotice = "";
+  state.adminCsvRows = [];
+  try {
+    if (!file.name.toLowerCase().endsWith(".csv")) throw new Error("Choose a .csv file.");
+    if (file.size > 1024 * 1024) throw new Error("CSV files must be smaller than 1 MB.");
+    state.adminCsvText = await file.text();
+  } catch (error) {
+    state.adminCsvText = "";
+    state.adminCsvError = error.message || "The CSV file could not be read.";
+  }
+  renderAdmin();
+}
+
+async function previewAdminCsv() {
+  state.adminCsvError = "";
+  state.adminCsvNotice = "";
+  try {
+    const result = await api("/api/admin/questions/csv/preview", {
+      method: "POST",
+      body: state.adminCsvText,
+      headers: { "Content-Type": "text/csv" },
+    });
+    state.adminCsvRows = Array.isArray(result.rows) ? result.rows : [];
+  } catch (error) {
+    state.adminCsvRows = [];
+    state.adminCsvError = error.message || "The CSV could not be validated.";
+  }
+  renderAdmin();
+}
+
+async function importAdminCsv() {
+  if (!state.adminCsvRows.some((row) => row.valid)) return;
+  state.adminCsvError = "";
+  state.adminCsvNotice = "";
+  try {
+    const result = await api("/api/admin/questions/csv/import", {
+      method: "POST",
+      body: state.adminCsvText,
+      headers: { "Content-Type": "text/csv" },
+    });
+    state.adminCsvNotice = `${result.imported} questions imported. ${result.invalid} invalid rows skipped.`;
+    state.adminCsvRows = Array.isArray(result.rows) ? result.rows : [];
+    await loadAdminQuestions();
+    renderAdmin();
+  } catch (error) {
+    state.adminCsvError = error.message || "The CSV could not be imported.";
+    renderAdmin();
+  }
+}
+
+function startAdmin() {
+  if (state.user?.role !== "admin") return;
+  state.screen = "admin";
+  state.adminEditingId = null;
+  renderAdmin();
+  loadAdminQuestions();
+}
+
+function renderCommunityResults() {
+  if (!state.user) return "";
+  const categories = state.quizzes.map((quiz) =>
+    `<option value="${escapeHTML(quiz.id)}" ${state.communityCategory === quiz.id ? "selected" : ""}>${escapeHTML(quiz.title)}</option>`
+  ).join("");
+  let content;
+  if (state.communityStatus === "loading") {
+    content = '<p class="record-note" role="status">Loading recent results…</p>';
+  } else if (state.communityError) {
+    content = `<p class="record-note" role="alert">${escapeHTML(state.communityError)}</p>`;
+  } else if (state.communityResults.length === 0) {
+    content = '<p class="record-note">Completed results will appear here, newest first.</p>';
+  } else {
+    content = `<div class="community-results-list">${state.communityResults.map((entry) => {
+      const outcome = entry.outcome || {};
+      const score = entry.score === null || entry.score === undefined
+        ? "Unscored"
+        : `${entry.score} / ${outcome.maxScore || entry.totalQuestions}${entry.percentage == null ? "" : ` · ${entry.percentage}%`}`;
+      const details = [...new Set([
+        outcome.profileSummary,
+        outcome.tier,
+        outcome.level ? `Level ${outcome.level}` : null,
+        outcome.feedback,
+        outcome.recommendation,
+      ].filter(Boolean))];
+      const responses = Array.isArray(entry.sharedResponses) && entry.sharedResponses.length
+        ? `<div class="community-response-list"><strong>Shared preferences</strong><ul>${entry.sharedResponses.map((response) =>
+          `<li><span>${escapeHTML(response.question)}</span><b>${escapeHTML(response.answer)}</b></li>`
+        ).join("")}</ul></div>`
+        : "";
+      const date = new Date(entry.completedAt);
+      const dateLabel = Number.isNaN(date.getTime()) ? "Date unavailable" : date.toLocaleString();
+      return `<article class="community-result">
+        <div class="community-result-meta"><strong>${escapeHTML(entry.username)}</strong><span>${escapeHTML(dateLabel)}</span></div>
+        <h3>${escapeHTML(entry.title)}</h3>
+        <p class="community-result-score">${escapeHTML(score)}</p>
+        ${details.map((detail) => `<p class="community-result-feedback">${escapeHTML(detail)}</p>`).join("")}
+        ${responses}
+      </article>`;
+    }).join("")}</div>`;
+  }
+  return `<section class="community-board" id="community-results" aria-labelledby="community-results-title">
+    <div class="community-board-heading">
+      <div><div class="eyebrow"><span class="eyebrow-line"></span> From the community</div>
+      <h2 id="community-results-title">Community results</h2>
+      <p>See what other students found useful. Recent results appear first; this is not a competition.</p></div>
+      <label class="community-filter">Activity
+        <select id="community-category"><option value="all">All activities</option>${categories}</select>
+      </label>
+    </div>
+    ${content}
+  </section>`;
+}
+
 function openAuthModal(type) {
   state.authModal = type;
   state.authError = "";
@@ -290,11 +494,13 @@ function closeAuthModal() {
 
 function shell(content, screenName = "setup") {
   const sectionLabel = screenName === "quiz" ? "A round in progress" : screenName === "results" ? "Your round, wrapped up" : "A quick brain break";
-  const homeNavigation = screenName === "setup" ? `
+  const homeNavigation = screenName === "setup" || screenName === "admin" ? `
     <nav class="site-nav" aria-label="Main navigation">
       <a href="#quiz-library">Explore</a>
       <a href="#matcher-promo">Study tools</a>
       ${state.user ? '<a href="#my-history">My History</a>' : ""}
+      ${state.user ? '<a href="#community-results">Community results</a>' : ""}
+      ${state.user?.role === "admin" ? '<button class="site-nav-button" type="button" data-action="open-admin">Admin tools</button>' : ""}
     </nav>` : "";
   const authBar = state.user ? `
     <div class="auth-bar">
@@ -322,6 +528,67 @@ function shell(content, screenName = "setup") {
         <span>Build momentum, one session at a time</span>
       </footer>
     </div>`;
+}
+
+function renderAdmin() {
+  if (state.user?.role !== "admin") {
+    app.innerHTML = shell('<main class="admin-page"><h1>Admin access required</h1><p>This area is available to administrators only.</p></main>', "admin");
+    return;
+  }
+  const question = state.adminQuestions.find((item) => item.id === state.adminEditingId);
+  const categoryOptions = state.adminCategories.map((category) =>
+    `<option value="${escapeHTML(category.id)}" ${question?.categoryId === category.id ? "selected" : ""}>${escapeHTML(category.title)}</option>`
+  ).join("");
+  const choices = Array.isArray(question?.options) ? question.options : ["", "", "", ""];
+  const questionList = state.adminQuestions.map((item) => `<article class="admin-question">
+    <div><span class="admin-question-category">${escapeHTML(item.categoryTitle)} · ${escapeHTML(item.difficulty)}</span>
+    <h3>${escapeHTML(item.prompt)}</h3>
+    <ol type="A">${(item.options || []).map((option) => `<li>${escapeHTML(option)}${item.correctIndex === item.options.indexOf(option) ? " (correct)" : ""}</li>`).join("")}</ol></div>
+    <button class="secondary-button" type="button" data-action="edit-admin-question" data-question-id="${item.id}">Edit</button>
+  </article>`).join("");
+  const preview = state.adminCsvRows.length
+    ? `<div class="csv-preview"><h3>Import preview</h3><p>${state.adminCsvRows.filter((row) => row.valid).length} valid · ${state.adminCsvRows.filter((row) => !row.valid).length} invalid</p>
+      <div class="csv-preview-table-wrap"><table class="csv-preview-table"><thead><tr><th>Row</th><th>Question</th><th>Status</th></tr></thead><tbody>
+      ${state.adminCsvRows.map((row) => `<tr class="${row.valid ? "csv-valid" : "csv-invalid"}"><td>${row.rowNumber}</td><td>${escapeHTML(row.prompt)}</td><td>${row.valid ? "Ready to import" : escapeHTML(row.errors.join(" "))}</td></tr>`).join("")}
+      </tbody></table></div>
+      ${state.adminCsvRows.some((row) => row.valid) ? '<button class="primary-button" type="button" data-action="import-admin-csv">Import valid rows</button>' : ""}
+      ${state.adminCsvNotice ? `<p class="admin-notice" role="status">${escapeHTML(state.adminCsvNotice)}</p>` : ""}
+      </div>`
+    : "";
+
+  app.innerHTML = shell(`<main class="admin-page">
+    <div class="admin-page-heading"><div class="eyebrow"><span class="eyebrow-line"></span> Administrator workspace</div><h1>Question library</h1><p>Add or edit scored quiz questions. Existing survey content is kept separate.</p></div>
+    ${state.adminError ? `<p class="admin-error" role="alert">${escapeHTML(state.adminError)}</p>` : ""}
+    ${state.adminNotice ? `<p class="admin-notice" role="status">${escapeHTML(state.adminNotice)}</p>` : ""}
+    <div class="admin-tool-grid">
+      <section class="admin-panel">
+        <h2>${question ? "Edit question" : "Add a question"}</h2>
+        <form id="admin-question-form">
+          <label>Quiz<select name="categoryId" required>${categoryOptions}</select></label>
+          <label>Difficulty<select name="difficulty" required>
+            ${["easy", "medium", "hard"].map((level) => `<option value="${level}" ${(question?.difficulty || "easy") === level ? "selected" : ""}>${level[0].toUpperCase()}${level.slice(1)}</option>`).join("")}
+          </select></label>
+          <label>Question<textarea name="prompt" maxlength="500" required>${escapeHTML(question?.prompt || "")}</textarea></label>
+          ${choices.map((choice, index) => `<label>Choice ${String.fromCharCode(65 + index)}<input name="choice${index}" value="${escapeHTML(choice)}" maxlength="300" required></label>`).join("")}
+          <label>Correct choice<select name="correctIndex" required>${["A", "B", "C", "D"].map((letter, index) => `<option value="${index}" ${question?.correctIndex === index ? "selected" : ""}>${letter}</option>`).join("")}</select></label>
+          <label>Explanation<textarea name="explanation" maxlength="1000">${escapeHTML(question?.explanation || "")}</textarea></label>
+          <div class="admin-form-actions"><button class="primary-button" type="submit" ${state.adminLoading ? "disabled" : ""}>${question ? "Save changes" : "Add question"}</button>
+          ${question ? '<button class="text-button" type="button" data-action="new-admin-question">Cancel edit</button>' : ""}</div>
+        </form>
+      </section>
+      <section class="admin-panel">
+        <h2>Import questions from CSV</h2>
+        <p>Use columns: quiz_id, question_text, choice_a, choice_b, choice_c, choice_d, correct_choice. Imports use Easy difficulty.</p>
+        <label class="csv-file-label">Choose CSV file<input id="admin-csv-file" type="file" accept=".csv,text/csv"></label>
+        ${state.adminCsvError ? `<p class="admin-error" role="alert">${escapeHTML(state.adminCsvError)}</p>` : ""}
+        ${state.adminCsvText ? `<button class="secondary-button" type="button" data-action="preview-admin-csv">Preview CSV</button>` : ""}
+        ${preview}
+      </section>
+    </div>
+    <section class="admin-question-list"><div class="admin-list-heading"><h2>Questions</h2><span>${state.adminQuestions.length} listed</span></div>
+      ${state.adminLoading ? '<p role="status">Loading questions…</p>' : questionList || '<p class="record-note">No editable questions yet.</p>'}
+    </section>
+  </main>`, "admin");
 }
 
 function renderAuthModal() {
@@ -529,6 +796,7 @@ function renderSetup() {
         </div>
         ${renderMyRecords()}
         ${renderMyHistory()}
+        ${renderCommunityResults()}
         ${state.setupError ? `
           <div class="notice" role="alert">
             <span class="notice-symbol" aria-hidden="true">!</span>
@@ -1010,6 +1278,7 @@ function render() {
   else if (state.screen === "results") renderResults();
   else if (state.screen === "matcher") renderMatcherQuestion();
   else if (state.screen === "matcher-results") renderMatcherResults();
+  else if (state.screen === "admin") renderAdmin();
   else renderSetup();
 }
 
@@ -1110,7 +1379,7 @@ async function submitQuiz() {
     state.results = result;
     state.screen = "results";
     state.submitting = false;
-    await Promise.all([loadMyRecords(), loadMyHistory()]);
+    await Promise.all([loadMyRecords(), loadMyHistory(), loadCommunityResults()]);
     render();
   } catch (error) {
     state.answerError = error.message || "Please try submitting your quiz again.";
@@ -1165,7 +1434,17 @@ function returnToSetup() {
 
 app.addEventListener("change", (event) => {
   const target = event.target;
-  if (!(target instanceof HTMLInputElement)) return;
+  if (!(target instanceof HTMLInputElement) && target.tagName !== "SELECT") return;
+
+  if (target.id === "admin-csv-file") {
+    handleCsvFile(target);
+    return;
+  }
+  if (target.id === "community-category") {
+    state.communityCategory = target.value;
+    loadCommunityResults();
+    return;
+  }
   
   if (target.name === "quizId") {
     state.selectedQuizId = target.value;
@@ -1198,6 +1477,7 @@ app.addEventListener("submit", (event) => {
   if (form.id === "register-form") registerUser(form);
   if (form.id === "login-form") loginUser(form);
   if (form.id === "setup-form") startQuiz(form);
+  if (form.id === "admin-question-form") saveAdminQuestion(form);
   if (form.id === "answer-form" && state.currentQuestionIndex === state.questions.length - 1) submitQuiz();
 });
 
@@ -1210,6 +1490,17 @@ app.addEventListener("click", (event) => {
   if (action === "open-login") openAuthModal("login");
   if (action === "open-register") openAuthModal("register");
   if (action === "logout") logoutUser();
+  if (action === "open-admin") startAdmin();
+  if (action === "new-admin-question") {
+    state.adminEditingId = null;
+    renderAdmin();
+  }
+  if (action === "edit-admin-question") {
+    state.adminEditingId = Number(trigger.dataset.questionId);
+    renderAdmin();
+  }
+  if (action === "preview-admin-csv") previewAdminCsv();
+  if (action === "import-admin-csv") importAdminCsv();
   if (action === "back-to-setup") returnToSetup();
   if (action === "retry-quiz") retryQuiz();
   if (action === "next-question") goToNextQuestion();

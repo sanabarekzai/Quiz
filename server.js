@@ -14,6 +14,11 @@ const { calculateStudyBlockerResult } = require("./lib/study-blocker");
 const { createUserHistoryHandler } = require("./lib/user-history");
 const { saveCompletedSessionAttempt } = require("./lib/session-attempts");
 const { saveQuizAttempt } = require("./lib/quiz-attempts");
+const {
+  EDITABLE_CATEGORIES,
+  validateCsv,
+  validateQuestion,
+} = require("./lib/admin-questions");
 
 const PORT = Number(process.env.PORT || 5000);
 const QUESTIONS_PER_GAME = 5;
@@ -99,6 +104,21 @@ function requireAuth(req, res, next) {
     return res.status(401).json({ error: "Unauthorized. Please log in." });
   }
   next();
+}
+
+async function requireAdmin(req, res, next) {
+  if (!req.session.userId) {
+    return res.status(401).json({ error: "Sign in to continue." });
+  }
+  try {
+    const result = await pool.query("SELECT role FROM users WHERE id = $1", [req.session.userId]);
+    if (result.rows[0]?.role !== "admin") {
+      return res.status(403).json({ error: "Admin access is required." });
+    }
+    next();
+  } catch (error) {
+    next(error);
+  }
 }
 
 function publicQuestion(row) {
@@ -1027,59 +1047,201 @@ app.post("/api/sessions/:sessionId/answer", async (req, res, next) => {
   }
 });
 
-app.get("/api/leaderboard", async (req, res, next) => {
-  const category = req.query.category;
+app.get("/api/leaderboard", requireAuth, (req, res) => {
+  const category = typeof req.query.category === "string" && req.query.category !== "all"
+    ? `?category=${encodeURIComponent(req.query.category)}`
+    : "";
+  res.redirect(307, `/api/community-results${category}`);
+});
+
+app.get("/api/community-results", requireAuth, async (req, res, next) => {
   try {
-    let result;
-    if (category === undefined || category === "all") {
-      result = await pool.query(`
-        SELECT s.player_name AS "playerName", s.category_id AS category, s.difficulty,
-               s.score, s.total_questions AS "totalQuestions",
-               (SELECT COUNT(*)::int
-                FROM quiz_questions q
-                WHERE q.id = ANY(s.question_ids) AND q.is_scored) AS "scoreTotal",
-               s.duration_seconds AS "durationSeconds", s.completed_at AS "completedAt"
-        FROM quiz_sessions s
-         WHERE s.status = 'completed'
-           AND s.category_id <> 'club_carnival'
-           AND s.category_id <> ALL($1::text[])
-        ORDER BY s.score DESC, s.duration_seconds ASC, s.completed_at DESC
-        LIMIT 10
-       `, [Array.from(UNAVAILABLE_QUIZ_IDS)]);
-    } else {
-      if (typeof category !== "string") {
-        return res.status(400).json({ error: "Choose a valid quiz category." });
-      }
-      if (UNAVAILABLE_QUIZ_IDS.has(category)) {
-        return res.status(400).json({ error: "That quiz category is not available." });
-      }
-      const categoryResult = await pool.query(
-        "SELECT id FROM quiz_categories WHERE id = $1",
-        [category],
-      );
-      if (categoryResult.rowCount === 0) {
-        return res.status(400).json({ error: "Choose a valid quiz category." });
-      }
-      if (category === "club_carnival") {
-        return res.json({ entries: [] });
-      }
-      result = await pool.query(
-        `SELECT s.player_name AS "playerName", s.category_id AS category, s.difficulty,
-                s.score, s.total_questions AS "totalQuestions",
-                (SELECT COUNT(*)::int
-                 FROM quiz_questions q
-                 WHERE q.id = ANY(s.question_ids) AND q.is_scored) AS "scoreTotal",
-                s.duration_seconds AS "durationSeconds", s.completed_at AS "completedAt"
-         FROM quiz_sessions s
-         WHERE s.status = 'completed' AND s.category_id = $1
-         ORDER BY s.score DESC, s.duration_seconds ASC, s.completed_at DESC
-         LIMIT 10`,
-        [category],
-      );
-    }
-    res.json({ entries: result.rows });
+    const categoryId = typeof req.query.category === "string" ? req.query.category : null;
+    const params = [categoryId];
+    const result = await pool.query(
+      `SELECT a.id, a.category_id AS "categoryId", c.title, u.username,
+              a.score, a.total_questions AS "totalQuestions", a.percentage,
+              a.completed_at AS "completedAt",
+              CASE WHEN a.category_id = 'club_carnival' THEN shared.responses
+                   ELSE '[]'::jsonb END AS "sharedResponses",
+              a.result
+       FROM quiz_attempts a
+       JOIN users u ON u.id = a.user_id
+       JOIN quiz_categories c ON c.id = a.category_id
+       LEFT JOIN LATERAL (
+         SELECT jsonb_agg(
+           jsonb_build_object('question', q.prompt, 'answer', q.options ->> ((answer.value->>'selectedIndex')::int))
+           ORDER BY (answer.value->>'questionId')::int
+         ) AS responses
+         FROM jsonb_array_elements(a.answers) AS answer(value)
+         JOIN quiz_questions q ON q.id = (answer.value->>'questionId')::int
+         WHERE a.category_id = 'club_carnival'
+       ) shared ON TRUE
+       WHERE ($1::text IS NULL OR a.category_id = $1)
+         AND a.category_id <> 'student_wellness'
+       ORDER BY a.completed_at DESC, a.id DESC
+       LIMIT 100`,
+      params,
+    );
+    const entries = result.rows.map((entry) => {
+      const resultData = entry.result && typeof entry.result === "object" ? entry.result : {};
+      return {
+        id: entry.id,
+        categoryId: entry.categoryId,
+        title: entry.title,
+        username: entry.username,
+        score: entry.score,
+        totalQuestions: entry.totalQuestions,
+        percentage: entry.percentage,
+        completedAt: entry.completedAt,
+        sharedResponses: entry.sharedResponses || [],
+        outcome: {
+          feedback: typeof resultData.feedback === "string" ? resultData.feedback : null,
+          recommendation: typeof resultData.recommendation === "string" ? resultData.recommendation : null,
+          tier: typeof resultData.tier === "string" ? resultData.tier : null,
+          level: typeof resultData.level === "number" ? resultData.level : null,
+          maxScore: typeof resultData.maxScore === "number" ? resultData.maxScore : null,
+          profileSummary: typeof resultData.profileSummary === "string" ? resultData.profileSummary : null,
+          primaryProfiles: Array.isArray(resultData.primaryProfiles) ? resultData.primaryProfiles : [],
+        },
+      };
+    });
+    res.json({ entries });
   } catch (error) {
     next(error);
+  }
+});
+
+app.get("/api/admin/questions", requireAdmin, async (req, res, next) => {
+  try {
+    const [categories, questions] = await Promise.all([
+      pool.query(
+        "SELECT id, title FROM quiz_categories WHERE id = ANY($1::text[]) ORDER BY sort_order, title",
+        [Array.from(EDITABLE_CATEGORIES)],
+      ),
+      pool.query(
+        `SELECT q.id, q.category_id AS "categoryId", c.title AS "categoryTitle",
+                q.difficulty, q.prompt, q.options, q.correct_index AS "correctIndex",
+                q.explanation
+         FROM quiz_questions q
+         JOIN quiz_categories c ON c.id = q.category_id
+         WHERE q.category_id = ANY($1::text[])
+         ORDER BY c.sort_order, q.difficulty, q.id DESC
+         LIMIT 500`,
+        [Array.from(EDITABLE_CATEGORIES)],
+      ),
+    ]);
+    res.json({ categories: categories.rows, questions: questions.rows });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/admin/questions", requireAdmin, async (req, res, next) => {
+  const validation = validateQuestion(req.body);
+  if (!validation.valid) return res.status(400).json({ error: validation.errors.join(" ") });
+  const question = validation.question;
+  try {
+    const result = await pool.query(
+      `INSERT INTO quiz_questions
+        (category_id, difficulty, prompt, options, correct_index, is_scored, answer_points, explanation)
+       VALUES ($1, $2, $3, $4::jsonb, $5, TRUE, '[]'::jsonb, $6)
+       RETURNING id`,
+      [question.categoryId, question.difficulty, question.prompt, JSON.stringify(question.options), question.correctIndex, question.explanation],
+    );
+    res.status(201).json({ id: result.rows[0].id });
+  } catch (error) {
+    if (error.code === "23505") return res.status(409).json({ error: "That question already exists for this quiz and difficulty." });
+    next(error);
+  }
+});
+
+app.put("/api/admin/questions/:id", requireAdmin, async (req, res, next) => {
+  const questionId = Number(req.params.id);
+  if (!Number.isSafeInteger(questionId) || questionId < 1) {
+    return res.status(400).json({ error: "Choose a valid question." });
+  }
+  const validation = validateQuestion(req.body);
+  if (!validation.valid) return res.status(400).json({ error: validation.errors.join(" ") });
+  const question = validation.question;
+  try {
+    const result = await pool.query(
+      `UPDATE quiz_questions
+       SET category_id = $1, difficulty = $2, prompt = $3, options = $4::jsonb,
+           correct_index = $5, is_scored = TRUE, answer_points = '[]'::jsonb, explanation = $6
+       WHERE id = $7 AND category_id = ANY($8::text[])
+       RETURNING id`,
+      [question.categoryId, question.difficulty, question.prompt, JSON.stringify(question.options), question.correctIndex, question.explanation, questionId, Array.from(EDITABLE_CATEGORIES)],
+    );
+    if (result.rowCount === 0) return res.status(404).json({ error: "Question not found in an editable quiz." });
+    res.json({ id: result.rows[0].id });
+  } catch (error) {
+    if (error.code === "23505") return res.status(409).json({ error: "That question already exists for this quiz and difficulty." });
+    next(error);
+  }
+});
+
+async function getExistingQuestionKeys() {
+  const result = await pool.query(
+    `SELECT category_id, difficulty, prompt
+     FROM quiz_questions
+     WHERE category_id = ANY($1::text[])`,
+    [Array.from(EDITABLE_CATEGORIES)],
+  );
+  return new Set(result.rows.map((row) => `${row.category_id}\u0000${row.difficulty}\u0000${row.prompt.trim().toLowerCase()}`));
+}
+
+async function validateQuestionCsv(text) {
+  const rows = validateCsv(text, await getExistingQuestionKeys());
+  const categories = await pool.query(
+    "SELECT id FROM quiz_categories WHERE id = ANY($1::text[])",
+    [Array.from(EDITABLE_CATEGORIES)],
+  );
+  const categoryIds = new Set(categories.rows.map((row) => row.id));
+  return rows.map((row) => {
+    const errors = [...row.errors];
+    if (!categoryIds.has(row.categoryId)) errors.push("That quiz ID does not exist.");
+    return { ...row, valid: errors.length === 0, errors };
+  });
+}
+
+app.post("/api/admin/questions/csv/preview", requireAdmin, express.text({ type: "text/csv", limit: "1mb" }), async (req, res, next) => {
+  try {
+    const rows = await validateQuestionCsv(req.body);
+    res.json({ rows });
+  } catch (error) {
+    if (error instanceof Error) return res.status(400).json({ error: error.message });
+    next(error);
+  }
+});
+
+app.post("/api/admin/questions/csv/import", requireAdmin, express.text({ type: "text/csv", limit: "1mb" }), async (req, res, next) => {
+  let client;
+  try {
+    const rows = await validateQuestionCsv(req.body);
+    const validRows = rows.filter((row) => row.valid);
+    client = await pool.connect();
+    await client.query("BEGIN");
+    let imported = 0;
+    for (const row of validRows) {
+      const result = await client.query(
+        `INSERT INTO quiz_questions
+          (category_id, difficulty, prompt, options, correct_index, is_scored, answer_points, explanation)
+         VALUES ($1, 'easy', $2, $3::jsonb, $4, TRUE, '[]'::jsonb, '')
+         ON CONFLICT (category_id, difficulty, prompt) DO NOTHING
+         RETURNING id`,
+        [row.categoryId, row.prompt, JSON.stringify(row.choices), row.correctIndex],
+      );
+      if (result.rowCount > 0) imported++;
+    }
+    await client.query("COMMIT");
+    res.json({ imported, invalid: rows.length - validRows.length, rows });
+  } catch (error) {
+    if (client) await client.query("ROLLBACK").catch(() => {});
+    if (error instanceof Error && error.message.startsWith("CSV")) return res.status(400).json({ error: error.message });
+    next(error);
+  } finally {
+    client?.release();
   }
 });
 
