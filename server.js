@@ -11,6 +11,9 @@ const toolMatcherData = require("./data/tool-matcher.json");
 const { publicQuestions: getPublicMatcherQuestions, validateAnswers: validateMatcherAnswers, calculateResults: calculateMatcherResults } = require("./lib/tool-matcher");
 const studyBlockerData = require("./data/study-blockers.json");
 const { calculateStudyBlockerResult } = require("./lib/study-blocker");
+const { createUserHistoryHandler } = require("./lib/user-history");
+const { saveCompletedSessionAttempt } = require("./lib/session-attempts");
+const { saveQuizAttempt } = require("./lib/quiz-attempts");
 
 const PORT = Number(process.env.PORT || 5000);
 const QUESTIONS_PER_GAME = 5;
@@ -378,6 +381,8 @@ app.get("/api/me/records", requireAuth, async (req, res, next) => {
   }
 });
 
+app.get("/api/me/history", requireAuth, createUserHistoryHandler(pool));
+
 app.get("/api/matcher/questions", requireAuth, (req, res) => {
   res.json({ questions: getPublicMatcherQuestions(toolMatcherData) });
 });
@@ -490,27 +495,6 @@ app.get("/api/quizzes/:id", async (req, res, next) => {
     next(error);
   }
 });
-
-async function saveQuizAttempt(userId, categoryId, questionIds, answers, result) {
-  await pool.query(
-    `INSERT INTO quiz_attempts
-      (user_id, category_id, question_ids, answers, result, score, total_questions, percentage)
-     VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8)`,
-    [
-      userId,
-      categoryId,
-      questionIds,
-      JSON.stringify(answers.map((selectedIndex, index) => ({
-        questionId: questionIds[index],
-        selectedIndex,
-      }))),
-      JSON.stringify(result),
-      result.score,
-      result.totalQuestions,
-      result.percentage,
-    ],
-  );
-}
 
 function getWellnessFeedback(totalScore) {
   if (totalScore >= 0 && totalScore <= 8) {
@@ -684,7 +668,7 @@ app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
         results,
         feedback: "Thanks for sharing your thoughts about the club.",
       };
-      await saveQuizAttempt(req.session.userId, id, questionIds, answers, response);
+      await saveQuizAttempt(pool, req.session.userId, id, questionIds, answers, response);
       return res.json(response);
     } else if (categoryId === "study_personality") {
       const profileCounts = { S: 0, P: 0, B: 0, E: 0 };
@@ -743,7 +727,7 @@ app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
         feedback: profileSummary,
         blendMessage: !isTie && blendKey ? STUDY_PERSONALITY_BLEND_MESSAGES[blendKey] : null,
       };
-      await saveQuizAttempt(req.session.userId, id, questionIds, answers, response);
+      await saveQuizAttempt(pool, req.session.userId, id, questionIds, answers, response);
       return res.json(response);
     } else if (categoryId === "study_blockers") {
       let blockerResponse;
@@ -752,7 +736,7 @@ app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
       } catch (error) {
         return res.status(500).json({ error: error.message });
       }
-      await saveQuizAttempt(req.session.userId, id, questionIds, answers, blockerResponse);
+      await saveQuizAttempt(pool, req.session.userId, id, questionIds, answers, blockerResponse);
       return res.json(blockerResponse);
     } else if (categoryId === 'student_wellness') {
       for (let i = 0; i < Math.min(answers.length, questions.length); i++) {
@@ -780,7 +764,7 @@ app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
         recommendation: feedback.recommendation,
         maxScore: 36
       };
-      await saveQuizAttempt(req.session.userId, id, questionIds, answers, response);
+      await saveQuizAttempt(pool, req.session.userId, id, questionIds, answers, response);
       res.json(response);
     } else if (categoryId === 'study_skills') {
       const pointMap = { 0: 3, 1: 2, 2: 1, 3: 0 };
@@ -812,7 +796,7 @@ app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
         nextQuest: feedback.nextQuest,
         maxScore: 30
       };
-      await saveQuizAttempt(req.session.userId, id, questionIds, answers, response);
+      await saveQuizAttempt(pool, req.session.userId, id, questionIds, answers, response);
       res.json(response);
     } else {
       for (let i = 0; i < Math.min(answers.length, questions.length); i++) {
@@ -842,7 +826,7 @@ app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
         percentage,
         results,
       };
-      await saveQuizAttempt(req.session.userId, id, questionIds, answers, response);
+      await saveQuizAttempt(pool, req.session.userId, id, questionIds, answers, response);
       res.json(response);
     }
   } catch (error) {
@@ -928,7 +912,7 @@ app.post("/api/sessions/:sessionId/answer", async (req, res, next) => {
     transactionOpen = true;
 
     const sessionResult = await client.query(
-      `SELECT id, category_id, question_ids, current_index, score, total_questions, status, started_at
+       `SELECT id, user_id, category_id, question_ids, current_index, score, total_questions, status, started_at
        FROM quiz_sessions
        WHERE id = $1
        FOR UPDATE`,
@@ -985,7 +969,7 @@ app.post("/api/sessions/:sessionId/answer", async (req, res, next) => {
            END,
            completed_at = CASE WHEN $4 = 'completed' THEN NOW() ELSE NULL END
        WHERE id = $1
-       RETURNING score, current_index, total_questions, duration_seconds`,
+        RETURNING score, current_index, total_questions, duration_seconds, answers`,
       [sessionId, pointsAwarded, answer, completed ? "completed" : "in_progress", isSurvey],
     );
     const updated = updatedResult.rows[0];
@@ -1008,6 +992,14 @@ app.post("/api/sessions/:sessionId/answer", async (req, res, next) => {
        WHERE id = ANY($1::int[]) AND is_scored = TRUE
          AND category_id <> 'club_carnival'`,
       [session.question_ids],
+    );
+
+    await saveCompletedSessionAttempt(
+      client,
+      session,
+      updated,
+      scoreTotalResult.rows[0].score_total,
+      completed,
     );
 
     await client.query("COMMIT");

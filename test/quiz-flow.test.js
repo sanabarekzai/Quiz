@@ -553,3 +553,70 @@ test("quiz navigation shows one question at a time and keeps edited answers", as
   assert.deepEqual(Array.from(submittedPayload.answers), [2, 1, 3]);
   assert.deepEqual(Array.from(submittedPayload.questionIds), [201, 202, 203]);
 });
+
+test("signed-in students see all attempts in the My History table", async () => {
+  const app = new MockApp();
+  const attempts = [
+    {
+      id: 32,
+      categoryId: "study_skills",
+      title: "Study Skills Level-Up Quiz",
+      score: 20,
+      totalQuestions: 10,
+      percentage: null,
+      result: { tier: "Growing" },
+      completedAt: "2026-10-27T18:00:00.000Z",
+    },
+    {
+      id: 31,
+      categoryId: "club_carnival",
+      title: "Club Carnival",
+      score: null,
+      totalQuestions: 5,
+      percentage: null,
+      result: { feedback: "Response saved" },
+      completedAt: "2026-10-26T18:00:00.000Z",
+    },
+    {
+      id: 30,
+      categoryId: "study_skills",
+      title: "Study Skills Level-Up Quiz",
+      score: 18,
+      totalQuestions: 10,
+      percentage: null,
+      result: { tier: "Developing" },
+      completedAt: "2026-10-25T18:00:00.000Z",
+    },
+  ];
+  const fetch = async (url) => {
+    if (url === "/api/me") {
+      return jsonResponse({ user: { id: 7, username: "history-player", displayName: "History Player" } });
+    }
+    if (url === "/api/me/records") return jsonResponse({ records: [] });
+    if (url === "/api/me/history") return jsonResponse({ attempts });
+    if (url === "/api/quizzes") return jsonResponse({ quizzes: [] });
+    throw new Error(`Unexpected API request: ${url}`);
+  };
+
+  vm.runInNewContext(appSource, {
+    document: { querySelector: () => app },
+    window: { addEventListener() {} },
+    fetch,
+    HTMLFormElement: MockForm,
+    HTMLInputElement: MockInput,
+    FormData: MockFormData,
+    Element: class MockElement {},
+    console,
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.match(app.innerHTML, /href="#my-history">My History/);
+  assert.match(app.innerHTML, /<h2 id="my-history-title">My History<\/h2>/);
+  assert.match(app.innerHTML, /<table class="history-table">/);
+  assert.equal((app.innerHTML.match(/<tbody>/g) || []).length, 1);
+  assert.ok(app.innerHTML.indexOf("2026-10-27") < app.innerHTML.indexOf("2026-10-26"));
+  assert.ok(app.innerHTML.indexOf("2026-10-26") < app.innerHTML.indexOf("2026-10-25"));
+  assert.match(app.innerHTML, /20 \/ 10 points/);
+  assert.match(app.innerHTML, /Response saved/);
+});

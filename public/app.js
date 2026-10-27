@@ -22,6 +22,8 @@ const state = {
   selectedQuizId: "",
   playerName: "",
   myRecords: [],
+  myHistory: [],
+  historyError: "",
   recordsError: "",
   setupError: "",
   starting: false,
@@ -174,7 +176,7 @@ async function registerUser(form) {
     state.authModal = "none";
     state.authLoading = false;
     state.registerData = { username: "", password: "", firstName: "", lastName: "", displayName: "" };
-    await loadMyRecords();
+    await Promise.all([loadMyRecords(), loadMyHistory()]);
     render();
   } catch (error) {
     state.authError = error.message || "Registration failed.";
@@ -206,7 +208,7 @@ async function loginUser(form) {
     state.authModal = "none";
     state.authLoading = false;
     state.loginData = { username: "", password: "" };
-    await loadMyRecords();
+    await Promise.all([loadMyRecords(), loadMyHistory()]);
     render();
   } catch (error) {
     state.authError = error.message || "Login failed.";
@@ -220,6 +222,8 @@ async function logoutUser() {
     await api("/api/logout", { method: "POST" });
     state.user = null;
     state.myRecords = [];
+    state.myHistory = [];
+    state.historyError = "";
     state.recordsError = "";
     render();
   } catch (error) {
@@ -231,11 +235,13 @@ async function checkAuthStatus() {
   try {
     const result = await api("/api/me");
     state.user = result.user;
-    await loadMyRecords();
+    await Promise.all([loadMyRecords(), loadMyHistory()]);
     render();
   } catch (error) {
     state.user = null;
     state.myRecords = [];
+    state.myHistory = [];
+    state.historyError = "";
     render();
   }
 }
@@ -252,6 +258,21 @@ async function loadMyRecords() {
     state.recordsError = "";
   } catch (error) {
     state.recordsError = error.message || "Your saved records could not be loaded.";
+  }
+}
+
+async function loadMyHistory() {
+  if (!state.user) {
+    state.myHistory = [];
+    state.historyError = "";
+    return;
+  }
+  try {
+    const result = await api("/api/me/history");
+    state.myHistory = Array.isArray(result.attempts) ? result.attempts : [];
+    state.historyError = "";
+  } catch (error) {
+    state.historyError = error.message || "Your attempt history could not be loaded.";
   }
 }
 
@@ -273,7 +294,7 @@ function shell(content, screenName = "setup") {
     <nav class="site-nav" aria-label="Main navigation">
       <a href="#quiz-library">Explore</a>
       <a href="#matcher-promo">Study tools</a>
-      ${state.user ? '<a href="#your-progress">My progress</a>' : ""}
+      ${state.user ? '<a href="#my-history">My History</a>' : ""}
     </nav>` : "";
   const authBar = state.user ? `
     <div class="auth-bar">
@@ -434,6 +455,53 @@ function renderMyRecords() {
   </section>`;
 }
 
+function renderMyHistory() {
+  if (!state.user) return "";
+
+  let content;
+  if (state.historyError) {
+    content = `<p class="record-note" role="alert">${escapeHTML(state.historyError)}</p>`;
+  } else if (state.myHistory.length === 0) {
+    content = '<p class="record-note">Completed activities will appear here.</p>';
+  } else {
+    const rows = state.myHistory.map((attempt) => {
+      const result = attempt.result || {};
+      const outcome = attempt.score !== null && attempt.score !== undefined
+        ? result.maxScore
+          ? `${attempt.score} / ${result.maxScore} points`
+          : attempt.percentage !== null && attempt.percentage !== undefined
+            ? `${attempt.score} / ${attempt.totalQuestions} · ${attempt.percentage}%`
+            : `${attempt.score} / ${attempt.totalQuestions} points`
+        : result.profileSummary || result.tier || result.category || "Response saved";
+      const completedDate = new Date(attempt.completedAt);
+      const formattedDate = Number.isNaN(completedDate.getTime())
+        ? "Date unavailable"
+        : completedDate.toLocaleString();
+      return `<tr>
+        <th scope="row">${escapeHTML(attempt.title)}</th>
+        <td>${escapeHTML(outcome)}</td>
+        <td><time datetime="${escapeHTML(attempt.completedAt)}">${escapeHTML(formattedDate)}</time></td>
+      </tr>`;
+    }).join("");
+    content = `<div class="history-table-wrap">
+      <table class="history-table">
+        <thead><tr><th scope="col">Activity</th><th scope="col">Result</th><th scope="col">Completed</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }
+
+  return `<section class="account-records" id="my-history" aria-labelledby="my-history-title">
+    <div class="account-records-heading">
+      <div>
+        <div class="eyebrow"><span class="eyebrow-line"></span> Your completed attempts</div>
+        <h2 id="my-history-title">My History</h2>
+      </div>
+    </div>
+    ${content}
+  </section>`;
+}
+
 function renderSetup() {
   app.innerHTML = shell(`
     <main class="setup-layout reveal">
@@ -460,6 +528,7 @@ function renderSetup() {
           <p>Pick an activity that meets you where you are today.</p>
         </div>
         ${renderMyRecords()}
+        ${renderMyHistory()}
         ${state.setupError ? `
           <div class="notice" role="alert">
             <span class="notice-symbol" aria-hidden="true">!</span>
@@ -1041,7 +1110,7 @@ async function submitQuiz() {
     state.results = result;
     state.screen = "results";
     state.submitting = false;
-    await loadMyRecords();
+    await Promise.all([loadMyRecords(), loadMyHistory()]);
     render();
   } catch (error) {
     state.answerError = error.message || "Please try submitting your quiz again.";
