@@ -1,22 +1,45 @@
 const express = require("express");
 const path = require("node:path");
-const fs = require("node:fs");
 const { randomUUID } = require("node:crypto");
 const { Pool } = require("pg");
 const bcrypt = require("bcrypt");
 const session = require("express-session");
+const connectPgSimple = require("connect-pg-simple");
 const cookieParser = require("cookie-parser");
 const { OAuth2Client } = require("google-auth-library");
+const toolMatcherData = require("./data/tool-matcher.json");
+const { publicQuestions: getPublicMatcherQuestions, validateAnswers: validateMatcherAnswers, calculateResults: calculateMatcherResults } = require("./lib/tool-matcher");
+const studyBlockerData = require("./data/study-blockers.json");
+const { calculateStudyBlockerResult } = require("./lib/study-blocker");
 
 const PORT = Number(process.env.PORT || 5000);
 const QUESTIONS_PER_GAME = 5;
 const DIFFICULTIES = new Set(["easy", "medium", "hard"]);
+const UNAVAILABLE_QUIZ_IDS = new Set(["mixed", "science", "geography", "history"]);
+const STUDY_PERSONALITY_PROFILE_ORDER = ["S", "P", "B", "E"];
+const STUDY_PERSONALITY_PROFILE_NAMES = {
+  S: "Sprinter",
+  P: "Perfectionist Planner",
+  B: "Study Buddy",
+  E: "Explorer",
+};
+const STUDY_PERSONALITY_BLEND_MESSAGES = {
+  SP: "You delay, then want it perfect. Start early with a rough version so you have time to improve it.",
+  SB: "You work better with other people around when the deadline is near. Schedule a study session before the deadline.",
+  SE: "You wait for pressure and get pulled in many directions. Short timers and mini-deadlines help most.",
+  PB: "You do your best work with structure and people. Share your plan with a study partner.",
+  PE: "You jump between organizing and exploring. Pick one project and limit the planning time.",
+  BE: "You’re energized by people and ideas. Give study sessions a goal so they don’t turn into social time.",
+};
 const SALT_ROUNDS = 12;
-const SESSION_SECRET = process.env.SESSION_SECRET || randomUUID();
+const SESSION_SECRET = process.env.SESSION_SECRET;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is required. Connect the Replit PostgreSQL database before starting the app.");
+}
+if (!SESSION_SECRET) {
+  throw new Error("SESSION_SECRET is required so sign-in sessions survive server restarts.");
 }
 
 const pool = new Pool({
@@ -25,33 +48,47 @@ const pool = new Pool({
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 5_000,
 });
+const PgSessionStore = connectPgSimple(session);
+const sessionStore = new PgSessionStore({
+  pool,
+  tableName: "user_sessions",
+  createTableIfMissing: false,
+});
 
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 
-// Load tool matcher data
-let matcherData = null;
-try {
-  const raw = fs.readFileSync(path.join(__dirname, "data", "tool-matcher.json"), "utf8");
-  matcherData = JSON.parse(raw);
-} catch (error) {
-  console.warn("Tool matcher data not loaded:", error.message);
-}
-
 const app = express();
 app.disable("x-powered-by");
+app.set("trust proxy", 1);
 app.use(express.json({ limit: "16kb" }));
 app.use(express.static(path.join(__dirname, "public")));
 app.use(cookieParser());
 app.use(session({
   secret: SESSION_SECRET,
+  store: sessionStore,
   resave: false,
   saveUninitialized: false,
+  rolling: true,
   cookie: {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    maxAge: null, // Session lasts until logout
+    sameSite: "lax",
+    maxAge: 365 * 24 * 60 * 60 * 1000,
   },
 }));
+
+function establishSession(req, userId) {
+  return new Promise((resolve, reject) => {
+    req.session.regenerate((regenerateError) => {
+      if (regenerateError) return reject(regenerateError);
+      req.session.userId = userId;
+      req.session.save((saveError) => {
+        if (saveError) return reject(saveError);
+        resolve();
+      });
+    });
+  });
+}
 
 // Middleware to check if user is authenticated
 function requireAuth(req, res, next) {
@@ -62,15 +99,18 @@ function requireAuth(req, res, next) {
 }
 
 function publicQuestion(row) {
-  return {
+  const question = {
     id: row.id,
     category: row.category_id,
     difficulty: row.difficulty,
     prompt: row.prompt,
     options: row.options,
-    correctIndex: row.correct_index,
     isScored: row.category_id === "club_carnival" ? false : row.is_scored,
   };
+  if (row.category_id !== "study_personality") {
+    question.correctIndex = row.correct_index;
+  }
+  return question;
 }
 
 function cleanPlayerName(value) {
@@ -138,12 +178,6 @@ app.post("/api/register", async (req, res, next) => {
     });
   }
   
-  if (username.length < 5) {
-    return res.status(400).json({ 
-      error: "Username must be at least 5 characters long." 
-    });
-  }
-  
   try {
     const existingUser = await getUserByUsername(username);
     if (existingUser) {
@@ -158,8 +192,7 @@ app.post("/api/register", async (req, res, next) => {
       displayName: displayName || `${firstName} ${lastName}`,
     });
     
-    req.session.userId = user.id;
-    req.session.save();
+    await establishSession(req, user.id);
     
     res.status(201).json({
       user: {
@@ -172,6 +205,9 @@ app.post("/api/register", async (req, res, next) => {
       },
     });
   } catch (error) {
+    if (error.code === "23505") {
+      return res.status(409).json({ error: "An account with that username already exists. Please log in instead." });
+    }
     next(error);
   }
 });
@@ -201,8 +237,7 @@ app.post("/api/login", async (req, res, next) => {
       return res.status(401).json({ error: "Invalid username or password." });
     }
     
-    req.session.userId = user.id;
-    req.session.save();
+    await establishSession(req, user.id);
     
     res.json({
       user: {
@@ -255,8 +290,7 @@ app.post("/api/auth/google", async (req, res, next) => {
       });
     }
     
-    req.session.userId = user.id;
-    req.session.save();
+    await establishSession(req, user.id);
     
     res.json({
       user: {
@@ -297,6 +331,91 @@ app.get("/api/me", requireAuth, async (req, res, next) => {
   }
 });
 
+app.get("/api/me/records", requireAuth, async (req, res, next) => {
+  try {
+    const result = await pool.query(
+      `WITH ranked_attempts AS (
+         SELECT a.id, a.user_id, a.category_id, c.title, a.score, a.total_questions,
+                a.percentage, a.result, a.completed_at,
+                COUNT(*) OVER (PARTITION BY a.category_id)::int AS attempt_count,
+                ROW_NUMBER() OVER (
+                  PARTITION BY a.category_id
+                  ORDER BY a.completed_at DESC, a.id DESC
+                ) AS attempt_rank
+         FROM quiz_attempts a
+         JOIN quiz_categories c ON c.id = a.category_id
+         WHERE a.user_id = $1
+       )
+        SELECT id, category_id AS "categoryId", title, score,
+              total_questions AS "totalQuestions", percentage, result,
+               completed_at AS "completedAt", attempt_count AS "attemptCount",
+               CASE WHEN category_id = 'study_personality' THEN (
+                 SELECT jsonb_agg(
+                   jsonb_build_object(
+                     'completedAt', history.completed_at,
+                     'profileSummary', history.result->>'profileSummary',
+                     'primaryProfiles', history.result->'primaryProfiles'
+                   )
+                   ORDER BY history.completed_at DESC, history.id DESC
+                 )
+                 FROM (
+                   SELECT h.id, h.completed_at, h.result
+                   FROM quiz_attempts h
+                   WHERE h.user_id = ranked_attempts.user_id
+                     AND h.category_id = ranked_attempts.category_id
+                   ORDER BY h.completed_at DESC, h.id DESC
+                   LIMIT 5
+                 ) history
+               ) ELSE '[]'::jsonb END AS "profileHistory"
+       FROM ranked_attempts
+       WHERE attempt_rank = 1
+       ORDER BY "completedAt" DESC`,
+      [req.session.userId],
+    );
+    res.json({ records: result.rows });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/matcher/questions", requireAuth, (req, res) => {
+  res.json({ questions: getPublicMatcherQuestions(toolMatcherData) });
+});
+
+app.post("/api/matcher/submit", requireAuth, async (req, res, next) => {
+  const { answers } = req.body || {};
+  if (!validateMatcherAnswers(answers, toolMatcherData)) {
+    return res.status(400).json({ error: "Answer all 12 questions using one of the listed choices." });
+  }
+  try {
+    const result = calculateMatcherResults(answers, toolMatcherData);
+    const saved = await pool.query(
+      `INSERT INTO matcher_results (user_id, ranking, group_scores, answers)
+       VALUES ($1, $2::jsonb, $3::jsonb, $4::jsonb)
+       RETURNING id, created_at AS "createdAt"`,
+      [req.session.userId, JSON.stringify(result.ranking), JSON.stringify(result.groupScores), JSON.stringify(answers)],
+    );
+    res.status(201).json({ ...result, id: saved.rows[0].id, createdAt: saved.rows[0].createdAt });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/matcher/results", requireAuth, async (req, res, next) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, ranking, group_scores AS "groupScores", answers, created_at AS "createdAt"
+       FROM matcher_results
+       WHERE user_id = $1
+       ORDER BY created_at DESC, id DESC`,
+      [req.session.userId],
+    );
+    res.json({ results: result.rows });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Logout
 app.post("/api/logout", (req, res) => {
   req.session.destroy((err) => {
@@ -312,12 +431,18 @@ app.post("/api/logout", (req, res) => {
 app.get("/api/quizzes", async (req, res, next) => {
   try {
     const result = await pool.query(`
-      SELECT c.id AS category, c.title, c.description, COUNT(q.id)::int AS "questionCount"
+      SELECT c.id, c.title, c.description,
+        CASE WHEN c.id = 'mixed' THEN (
+          SELECT LEAST(COUNT(*), ${QUESTIONS_PER_GAME})::int
+          FROM quiz_questions
+          WHERE category_id NOT IN ('mixed', 'club_carnival', 'student_wellness', 'study_skills')
+        ) ELSE COUNT(q.id)::int END AS "questionCount"
       FROM quiz_categories c
       LEFT JOIN quiz_questions q ON c.id = q.category_id
+       WHERE c.id <> ALL($1::text[])
       GROUP BY c.id, c.title, c.description, c.sort_order
       ORDER BY c.sort_order, c.title
-    `);
+    `, [Array.from(UNAVAILABLE_QUIZ_IDS)]);
     res.json({ quizzes: result.rows });
   } catch (error) {
     next(error);
@@ -326,6 +451,9 @@ app.get("/api/quizzes", async (req, res, next) => {
 
 app.get("/api/quizzes/:id", async (req, res, next) => {
   const { id } = req.params;
+  if (UNAVAILABLE_QUIZ_IDS.has(id)) {
+    return res.status(404).json({ error: "Quiz not found." });
+  }
   try {
     const categoryResult = await pool.query(
       "SELECT id, title, description FROM quiz_categories WHERE id = $1",
@@ -335,13 +463,22 @@ app.get("/api/quizzes/:id", async (req, res, next) => {
       return res.status(404).json({ error: "Quiz not found." });
     }
 
-    const questionsResult = await pool.query(
-      `SELECT id, category_id, difficulty, prompt, options, is_scored
-       FROM quiz_questions
-       WHERE category_id = $1
-       ORDER BY random()`,
-      [id]
-    );
+    const questionsResult = id === "mixed"
+      ? await pool.query(
+        `SELECT id, category_id, difficulty, prompt, options, is_scored
+         FROM quiz_questions
+         WHERE category_id NOT IN ('mixed', 'club_carnival', 'student_wellness', 'study_skills')
+         ORDER BY random()
+         LIMIT $1`,
+        [QUESTIONS_PER_GAME],
+      )
+      : await pool.query(
+        `SELECT id, category_id, difficulty, prompt, options, is_scored
+         FROM quiz_questions
+         WHERE category_id = $1
+         ORDER BY random()`,
+        [id],
+      );
 
     const questions = questionsResult.rows.map((row) => publicQuestion(row));
     res.json({
@@ -353,6 +490,27 @@ app.get("/api/quizzes/:id", async (req, res, next) => {
     next(error);
   }
 });
+
+async function saveQuizAttempt(userId, categoryId, questionIds, answers, result) {
+  await pool.query(
+    `INSERT INTO quiz_attempts
+      (user_id, category_id, question_ids, answers, result, score, total_questions, percentage)
+     VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8)`,
+    [
+      userId,
+      categoryId,
+      questionIds,
+      JSON.stringify(answers.map((selectedIndex, index) => ({
+        questionId: questionIds[index],
+        selectedIndex,
+      }))),
+      JSON.stringify(result),
+      result.score,
+      result.totalQuestions,
+      result.percentage,
+    ],
+  );
+}
 
 function getWellnessFeedback(totalScore) {
   if (totalScore >= 0 && totalScore <= 8) {
@@ -464,20 +622,42 @@ function getStudySkillsFeedback(totalScore) {
 
 app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
   const { id } = req.params;
-  const { answers } = req.body || {};
+  const { answers, questionIds } = req.body || {};
+  if (UNAVAILABLE_QUIZ_IDS.has(id)) {
+    return res.status(404).json({ error: "Quiz not found." });
+  }
 
-  if (!Array.isArray(answers)) {
-    return res.status(400).json({ error: "Answers must be an array." });
+  if (!Array.isArray(answers) || !Array.isArray(questionIds) ||
+      answers.length !== questionIds.length ||
+      !answers.every((answer) => Number.isInteger(answer) && answer >= 0 && answer < 4) ||
+      !questionIds.every((questionId) => Number.isSafeInteger(questionId) && questionId > 0)) {
+    return res.status(400).json({ error: "Answers and question IDs must be matching arrays." });
+  }
+  if (id === "study_blockers" && answers.length !== studyBlockerData.questions.length) {
+    return res.status(400).json({ error: "Answer all 12 study blocker questions before submitting." });
   }
 
   try {
-    const questionsResult = await pool.query(
-      `SELECT id, correct_index, is_scored, category_id
-       FROM quiz_questions
-       WHERE category_id = $1
-       ORDER BY id`,
-      [id]
-    );
+    const questionsResult = id === "mixed"
+      ? await pool.query(
+          `SELECT id, correct_index, is_scored, category_id, answer_points
+         FROM quiz_questions
+         WHERE id = ANY($1::int[])
+           AND category_id NOT IN ('mixed', 'club_carnival', 'student_wellness', 'study_skills')
+         ORDER BY array_position($1::int[], id)`,
+        [questionIds],
+      )
+      : await pool.query(
+          `SELECT id, correct_index, is_scored, category_id, answer_points
+         FROM quiz_questions
+         WHERE id = ANY($1::int[]) AND category_id = $2
+         ORDER BY array_position($1::int[], id)`,
+        [questionIds, id],
+      );
+
+    if (questionsResult.rowCount !== questionIds.length) {
+      return res.status(400).json({ error: "The selected questions do not match this quiz." });
+    }
 
     if (questionsResult.rowCount === 0) {
       return res.status(404).json({ error: "Quiz not found or has no questions." });
@@ -488,7 +668,93 @@ app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
     let score = 0;
     const results = [];
 
-    if (categoryId === 'student_wellness') {
+    if (categoryId === "club_carnival") {
+      for (let i = 0; i < questions.length; i++) {
+        results.push({
+          questionId: questions[i].id,
+          selectedIndex: answers[i],
+          isCorrect: null,
+          isScored: false,
+        });
+      }
+      const response = {
+        score: null,
+        totalQuestions: questions.length,
+        percentage: null,
+        results,
+        feedback: "Thanks for sharing your thoughts about the club.",
+      };
+      await saveQuizAttempt(req.session.userId, id, questionIds, answers, response);
+      return res.json(response);
+    } else if (categoryId === "study_personality") {
+      const profileCounts = { S: 0, P: 0, B: 0, E: 0 };
+      for (let i = 0; i < questions.length; i++) {
+        const profileId = questions[i].answer_points?.[answers[i]];
+        if (!Object.hasOwn(profileCounts, profileId)) {
+          return res.status(500).json({ error: "Study personality scoring is not configured correctly." });
+        }
+        profileCounts[profileId]++;
+        results.push({
+          questionId: questions[i].id,
+          selectedIndex: answers[i],
+          isCorrect: null,
+          isScored: false,
+        });
+      }
+
+      const rankedProfiles = STUDY_PERSONALITY_PROFILE_ORDER
+        .map((profileId) => ({
+          id: profileId,
+          name: STUDY_PERSONALITY_PROFILE_NAMES[profileId],
+          count: profileCounts[profileId],
+          percentage: Math.round((profileCounts[profileId] / questions.length) * 100),
+        }))
+        .sort((a, b) => b.count - a.count ||
+          STUDY_PERSONALITY_PROFILE_ORDER.indexOf(a.id) - STUDY_PERSONALITY_PROFILE_ORDER.indexOf(b.id));
+      const highestCount = rankedProfiles[0].count;
+      const tiedForFirst = rankedProfiles.filter((profile) => profile.count === highestCount);
+      const primaryProfiles = tiedForFirst.length > 1
+        ? tiedForFirst.map((profile) => profile.id)
+        : [rankedProfiles[0].id];
+      if (tiedForFirst.length === 1 && highestCount - rankedProfiles[1].count <= 2) {
+        primaryProfiles.push(rankedProfiles[1].id);
+      }
+
+      const isTie = tiedForFirst.length > 1;
+      const blendKey = primaryProfiles.length === 2
+        ? STUDY_PERSONALITY_PROFILE_ORDER
+          .filter((profileId) => primaryProfiles.includes(profileId))
+          .join("")
+        : null;
+      const profileSummary = isTie
+        ? `A balanced mix of ${primaryProfiles.map((profileId) => STUDY_PERSONALITY_PROFILE_NAMES[profileId]).join(" and ")}`
+        : primaryProfiles.length === 2
+          ? `${STUDY_PERSONALITY_PROFILE_NAMES[primaryProfiles[0]]} with ${STUDY_PERSONALITY_PROFILE_NAMES[primaryProfiles[1]]} tendencies`
+          : STUDY_PERSONALITY_PROFILE_NAMES[primaryProfiles[0]];
+      const response = {
+        score: null,
+        totalQuestions: questions.length,
+        percentage: null,
+        results,
+        profiles: rankedProfiles,
+        primaryProfiles,
+        isTie,
+        profileSummary,
+        feedback: profileSummary,
+        blendMessage: !isTie && blendKey ? STUDY_PERSONALITY_BLEND_MESSAGES[blendKey] : null,
+      };
+      await saveQuizAttempt(req.session.userId, id, questionIds, answers, response);
+      return res.json(response);
+    } else if (categoryId === "study_blockers") {
+      let blockerResponse;
+      try {
+        blockerResponse = calculateStudyBlockerResult(questions, answers, studyBlockerData);
+      } catch (error) {
+        return res.status(500).json({ error: error.message });
+      }
+      await saveQuizAttempt(req.session.userId, id, questionIds, answers, blockerResponse);
+      return res.json(blockerResponse);
+    } else if (categoryId === 'student_wellness') {
       for (let i = 0; i < Math.min(answers.length, questions.length); i++) {
         const question = questions[i];
         const answer = answers[i];
@@ -504,7 +770,7 @@ app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
         });
       }
       const feedback = getWellnessFeedback(score);
-      res.json({
+      const response = {
         score,
         totalQuestions: questions.length,
         percentage: null,
@@ -513,7 +779,9 @@ app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
         feedback: feedback.feedback,
         recommendation: feedback.recommendation,
         maxScore: 36
-      });
+      };
+      await saveQuizAttempt(req.session.userId, id, questionIds, answers, response);
+      res.json(response);
     } else if (categoryId === 'study_skills') {
       const pointMap = { 0: 3, 1: 2, 2: 1, 3: 0 };
       for (let i = 0; i < Math.min(answers.length, questions.length); i++) {
@@ -531,7 +799,7 @@ app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
         });
       }
       const feedback = getStudySkillsFeedback(score);
-      res.json({
+      const response = {
         score,
         totalQuestions: questions.length,
         percentage: null,
@@ -543,7 +811,9 @@ app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
         tips: feedback.tips,
         nextQuest: feedback.nextQuest,
         maxScore: 30
-      });
+      };
+      await saveQuizAttempt(req.session.userId, id, questionIds, answers, response);
+      res.json(response);
     } else {
       for (let i = 0; i < Math.min(answers.length, questions.length); i++) {
         const question = questions[i];
@@ -566,12 +836,14 @@ app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
 
       const percentage = Math.round((score / questions.length) * 100);
 
-      res.json({
+      const response = {
         score,
         totalQuestions: questions.length,
         percentage,
         results,
-      });
+      };
+      await saveQuizAttempt(req.session.userId, id, questionIds, answers, response);
+      res.json(response);
     }
   } catch (error) {
     next(error);
@@ -586,6 +858,9 @@ app.post("/api/sessions", async (req, res, next) => {
   }
   if (typeof category !== "string" || !DIFFICULTIES.has(difficulty)) {
     return res.status(400).json({ error: "Choose a valid quiz and difficulty." });
+  }
+  if (UNAVAILABLE_QUIZ_IDS.has(category)) {
+    return res.status(400).json({ error: "That quiz category is not available." });
   }
 
   try {
@@ -620,9 +895,9 @@ app.post("/api/sessions", async (req, res, next) => {
     const questionIds = questionResult.rows.map((question) => question.id);
     await pool.query(
       `INSERT INTO quiz_sessions
-        (id, player_name, category_id, difficulty, question_ids, total_questions)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [sessionId, playerName, category, difficulty, questionIds, QUESTIONS_PER_GAME],
+        (id, user_id, player_name, category_id, difficulty, question_ids, total_questions)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [sessionId, req.session?.userId || null, playerName, category, difficulty, questionIds, QUESTIONS_PER_GAME],
     );
 
     res.status(201).json({
@@ -773,13 +1048,18 @@ app.get("/api/leaderboard", async (req, res, next) => {
                 WHERE q.id = ANY(s.question_ids) AND q.is_scored) AS "scoreTotal",
                s.duration_seconds AS "durationSeconds", s.completed_at AS "completedAt"
         FROM quiz_sessions s
-        WHERE s.status = 'completed' AND s.category_id <> 'club_carnival'
+         WHERE s.status = 'completed'
+           AND s.category_id <> 'club_carnival'
+           AND s.category_id <> ALL($1::text[])
         ORDER BY s.score DESC, s.duration_seconds ASC, s.completed_at DESC
         LIMIT 10
-      `);
+       `, [Array.from(UNAVAILABLE_QUIZ_IDS)]);
     } else {
       if (typeof category !== "string") {
         return res.status(400).json({ error: "Choose a valid quiz category." });
+      }
+      if (UNAVAILABLE_QUIZ_IDS.has(category)) {
+        return res.status(400).json({ error: "That quiz category is not available." });
       }
       const categoryResult = await pool.query(
         "SELECT id FROM quiz_categories WHERE id = $1",
@@ -806,197 +1086,6 @@ app.get("/api/leaderboard", async (req, res, next) => {
       );
     }
     res.json({ entries: result.rows });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// ============ TOOL MATCHER API ============
-
-// GET /api/matcher/questions - Returns questions and choices only (no points)
-app.get("/api/matcher/questions", requireAuth, async (req, res, next) => {
-  try {
-    if (!matcherData) {
-      return res.status(503).json({ error: "Tool matcher data is not available." });
-    }
-    const questions = matcherData.questions.map((q) => ({
-      id: q.id,
-      text: q.text,
-      choices: q.choices.map((c) => ({
-        id: c.id,
-        text: c.text,
-      })),
-    }));
-    res.json({ questions });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// POST /api/matcher/submit - Calculate results and save to database
-app.post("/api/matcher/submit", requireAuth, async (req, res, next) => {
-  const { answers } = req.body || {};
-
-  if (!answers || typeof answers !== "object") {
-    return res.status(400).json({ error: "Answers are required." });
-  }
-
-  try {
-    if (!matcherData) {
-      return res.status(503).json({ error: "Tool matcher data is not available." });
-    }
-
-    // Validate all 12 questions are answered with valid choices
-    const questionIds = matcherData.questions.map((q) => String(q.id));
-    const validChoices = new Set();
-    matcherData.questions.forEach((q) => {
-      q.choices.forEach((c) => validChoices.add(c.id));
-    });
-
-    const userAnswers = {};
-    for (const [qId, choiceId] of Object.entries(answers)) {
-      if (!questionIds.includes(qId)) {
-        return res.status(400).json({ error: `Invalid question ID: ${qId}` });
-      }
-      if (!validChoices.has(choiceId)) {
-        return res.status(400).json({ error: `Invalid choice ID: ${choiceId}` });
-      }
-      userAnswers[qId] = choiceId;
-    }
-
-    if (Object.keys(userAnswers).length !== 12) {
-      return res.status(400).json({ error: "All 12 questions must be answered." });
-    }
-
-    // Calculate scores per tool
-    const toolScores = {};
-    const toolIds = matcherData.tools.map((t) => t.id);
-    toolIds.forEach((id) => (toolScores[id] = 0));
-
-    for (const [qId, choiceId] of Object.entries(userAnswers)) {
-      const question = matcherData.questions.find((q) => String(q.id) === qId);
-      if (!question) continue;
-
-      const choice = question.choices.find((c) => c.id === choiceId);
-      if (!choice || !choice.points) continue;
-
-      for (const [toolId, points] of Object.entries(choice.points)) {
-        if (toolIds.includes(toolId)) {
-          toolScores[toolId] = (toolScores[toolId] || 0) + points;
-        }
-      }
-    }
-
-    // Calculate max possible per tool
-    const maxPossible = {};
-    toolIds.forEach((id) => (maxPossible[id] = 0));
-
-    for (const question of matcherData.questions) {
-      for (const choice of question.choices) {
-        if (!choice.points) continue;
-        for (const [toolId, points] of Object.entries(choice.points)) {
-          if (toolIds.includes(toolId)) {
-            maxPossible[toolId] = Math.max(maxPossible[toolId] || 0, points);
-          }
-        }
-      }
-    }
-
-    // Calculate match percentages
-    const matchPercents = {};
-    for (const toolId of toolIds) {
-      matchPercents[toolId] = Math.round((toolScores[toolId] / maxPossible[toolId]) * 100);
-    }
-
-    // Sort by match percentage (descending), then by Q1 points, then alphabetically
-    const question1Id = "1";
-    const q1Choice = userAnswers[question1Id];
-    const q1Points = {};
-    if (q1Choice) {
-      const q1 = matcherData.questions.find((q) => String(q.id) === question1Id);
-      if (q1) {
-        const choice = q1.choices.find((c) => c.id === q1Choice);
-        if (choice && choice.points) {
-          for (const [toolId, points] of Object.entries(choice.points)) {
-            q1Points[toolId] = points;
-          }
-        }
-      }
-    }
-
-    const sortedTools = [...toolIds].sort((a, b) => {
-      // Primary: match percentage descending
-      if (matchPercents[a] !== matchPercents[b]) {
-        return matchPercents[b] - matchPercents[a];
-      }
-      // Secondary: Q1 points descending
-      const aQ1 = q1Points[a] || 0;
-      const bQ1 = q1Points[b] || 0;
-      if (aQ1 !== bQ1) {
-        return bQ1 - aQ1;
-      }
-      // Tertiary: alphabetical by tool ID
-      return a.localeCompare(b);
-    });
-
-    // Create ranking
-    const ranking = sortedTools.map((toolId, index) => {
-      const tool = matcherData.tools.find((t) => t.id === toolId);
-      return {
-        rank: index + 1,
-        toolId: toolId,
-        name: tool ? tool.name : toolId,
-        matchPercent: matchPercents[toolId],
-        group: tool ? tool.group : "unknown",
-        blurb: tool ? tool.blurb : "",
-        firstStep: tool ? tool.firstStep : "",
-      };
-    });
-
-    // Calculate group scores
-    const groupScores = {};
-    for (const group of matcherData.groups) {
-      const groupToolIds = group.toolIds;
-      const total = groupToolIds.reduce((sum, tid) => sum + (matchPercents[tid] || 0), 0);
-      groupScores[group.id] = {
-        name: group.name,
-        average: Math.round(total / groupToolIds.length),
-      };
-    }
-
-    // Sort groups by average score
-    const sortedGroups = Object.entries(groupScores)
-      .sort(([, a], [, b]) => b.average - a.average)
-      .map(([id, data]) => ({ id, ...data }));
-
-    // Save to database
-    await pool.query(
-      `INSERT INTO matcher_results (user_id, ranking, group_scores, answers)
-       VALUES ($1, $2, $3, $4)`,
-      [req.session.userId, JSON.stringify(ranking), JSON.stringify(groupScores), JSON.stringify(userAnswers)]
-    );
-
-    res.json({
-      ranking,
-      groups: sortedGroups,
-      matchPercents,
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// GET /api/matcher/results - Get current user's past results
-app.get("/api/matcher/results", requireAuth, async (req, res, next) => {
-  try {
-    const result = await pool.query(
-      `SELECT id, ranking, group_scores, answers, created_at
-       FROM matcher_results
-       WHERE user_id = $1
-       ORDER BY created_at DESC`,
-      [req.session.userId]
-    );
-    res.json({ results: result.rows });
   } catch (error) {
     next(error);
   }
