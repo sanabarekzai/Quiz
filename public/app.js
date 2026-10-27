@@ -550,7 +550,10 @@ function renderQuestionOptions() {
 function renderQuiz() {
   const total = Math.max(1, state.questions.length);
   const current = Math.min(total, state.currentQuestionIndex + 1);
-  const percent = Math.round(((state.currentQuestionIndex + (state.answers[state.currentQuestionIndex] !== undefined ? 1 : 0)) / total) * 100);
+  const currentAnswer = state.answers[state.currentQuestionIndex];
+  const hasCurrentAnswer = currentAnswer !== null && currentAnswer !== undefined;
+  const answeredCount = state.answers.filter((answer) => answer !== null && answer !== undefined).length;
+  const percent = Math.round((answeredCount / total) * 100);
   const currentQuestion = state.questions[state.currentQuestionIndex];
   const isBlockerSurvey = (state.currentQuiz?.id || state.selectedQuizId) === "study_blockers";
   
@@ -575,16 +578,16 @@ function renderQuiz() {
           <form id="answer-form">
             ${renderQuestionOptions()}
             <div class="question-actions">
-              <span class="selection-hint">${state.answers[state.currentQuestionIndex] !== undefined ? "Answer selected. Ready to continue." : "Select an answer to continue."}</span>
+              <span class="selection-hint">${hasCurrentAnswer ? "Answer selected. Ready to continue." : "Select an answer to continue."}</span>
               <div class="quiz-navigation">
                 <button class="secondary-button prev-button" type="button" data-action="prev-question" ${state.currentQuestionIndex === 0 ? "disabled" : ""}>
                   <span class="button-arrow" aria-hidden="true">\u2190</span><span>Previous</span>
                 </button>
                 ${state.currentQuestionIndex < total - 1 ? `
-                  <button class="primary-button next-button" type="button" data-action="next-question" ${state.answers[state.currentQuestionIndex] === undefined ? "disabled" : ""}>
+                  <button class="primary-button next-button" type="button" data-action="next-question" ${!hasCurrentAnswer ? "disabled" : ""}>
                     <span>Next</span><span class="button-arrow" aria-hidden="true">\u2192</span>
                   </button>` : `
-                  <button class="primary-button submit-quiz-button" type="submit" ${state.answers[state.currentQuestionIndex] === undefined ? "disabled" : ""}>
+                  <button class="primary-button submit-quiz-button" type="submit" ${!hasCurrentAnswer ? "disabled" : ""}>
                     <span>${state.submitting ? "Submitting..." : "Submit Quiz"}</span><span class="button-arrow" aria-hidden="true">${state.submitting ? "\u2026" : "\u2192"}</span>
                   </button>`}
               </div>

@@ -436,3 +436,120 @@ test("each available activity can be completed, shows its result, and can be ret
     });
   }
 });
+
+test("quiz navigation shows one question at a time and keeps edited answers", async () => {
+  const app = new MockApp();
+  const quizzes = [
+    { id: "club_carnival", title: "Club Carnival", questionCount: 3 },
+    { id: "student_wellness", title: "Student Wellness Survey", questionCount: 12 },
+    { id: "study_skills", title: "Study Skills Level-Up Quiz", questionCount: 10 },
+    { id: "study_personality", title: "What's Your Study Personality?", questionCount: 12 },
+    { id: "study_blockers", title: "Study Blocker Check-In", questionCount: 12 },
+  ];
+  const questions = Array.from({ length: 3 }, (_, index) => ({
+    id: index + 201,
+    prompt: `Navigation question ${index + 1}`,
+    options: ["Choice A", "Choice B", "Choice C", "Choice D"],
+    isScored: false,
+  }));
+  let submittedPayload;
+  const fetch = async (url, options = {}) => {
+    if (url === "/api/me") {
+      return jsonResponse({ user: { id: 11, username: "navigation-player", displayName: "Navigation Player" } });
+    }
+    if (url === "/api/me/records") return jsonResponse({ records: [] });
+    if (url === "/api/quizzes") return jsonResponse({ quizzes });
+    if (url === "/api/quizzes/club_carnival") {
+      return jsonResponse({
+        quiz: { id: "club_carnival", title: "Club Carnival" },
+        questions,
+        totalQuestions: questions.length,
+      });
+    }
+    if (url === "/api/quizzes/club_carnival/submit") {
+      submittedPayload = JSON.parse(options.body);
+      return jsonResponse({
+        score: null,
+        totalQuestions: 3,
+        percentage: null,
+        feedback: "Thanks for sharing your thoughts about the club.",
+      });
+    }
+    throw new Error(`Unexpected API request: ${url}`);
+  };
+  class MockElement {
+    constructor(action) {
+      this.action = action;
+    }
+    closest() {
+      return { dataset: { action: this.action } };
+    }
+  }
+
+  vm.runInNewContext(appSource, {
+    document: { querySelector: () => app },
+    window: { addEventListener() {} },
+    fetch,
+    HTMLFormElement: MockForm,
+    HTMLInputElement: MockInput,
+    FormData: MockFormData,
+    Element: MockElement,
+    console,
+  });
+
+  const flush = async () => {
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+  };
+  await flush();
+
+  for (const quiz of quizzes) {
+    const renderedTitle = quiz.title.replace(/'/g, "&#39;");
+    assert.match(app.innerHTML, new RegExp(renderedTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  app.listeners.get("change")({ target: new MockInput("quizId", "club_carnival") });
+  assert.match(app.innerHTML, /value="club_carnival" checked/);
+  app.listeners.get("submit")({
+    preventDefault() {},
+    target: new MockForm("setup-form", { quizId: "club_carnival" }),
+  });
+  await flush();
+
+  assert.match(app.innerHTML, /Question 1 of 3/);
+  assert.match(app.innerHTML, /Navigation question 1/);
+  assert.doesNotMatch(app.innerHTML, /Navigation question 2|Navigation question 3/);
+  assert.match(app.innerHTML, /data-action="prev-question" disabled/);
+  assert.match(app.innerHTML, /data-action="next-question" disabled/);
+
+  app.listeners.get("change")({ target: new MockInput("answer", "0") });
+  app.listeners.get("click")({ target: new MockElement("next-question") });
+  assert.match(app.innerHTML, /Question 2 of 3/);
+  assert.match(app.innerHTML, /Navigation question 2/);
+  assert.doesNotMatch(app.innerHTML, /Navigation question 1|Navigation question 3/);
+
+  app.listeners.get("change")({ target: new MockInput("answer", "1") });
+  app.listeners.get("click")({ target: new MockElement("prev-question") });
+  assert.match(app.innerHTML, /Question 1 of 3/);
+  assert.match(app.innerHTML, /value="0" checked/);
+  assert.doesNotMatch(app.innerHTML, /Navigation question 2|Navigation question 3/);
+
+  app.listeners.get("change")({ target: new MockInput("answer", "2") });
+  app.listeners.get("click")({ target: new MockElement("next-question") });
+  assert.match(app.innerHTML, /Question 2 of 3/);
+  assert.match(app.innerHTML, /value="1" checked/);
+  app.listeners.get("click")({ target: new MockElement("next-question") });
+  assert.match(app.innerHTML, /Question 3 of 3/);
+  assert.match(app.innerHTML, /data-action="prev-question"/);
+  assert.match(app.innerHTML, /Submit Quiz/);
+  assert.doesNotMatch(app.innerHTML, /Navigation question 1|Navigation question 2/);
+
+  app.listeners.get("change")({ target: new MockInput("answer", "3") });
+  app.listeners.get("submit")({
+    preventDefault() {},
+    target: new MockForm("answer-form", {}),
+  });
+  await flush();
+
+  assert.deepEqual(Array.from(submittedPayload.answers), [2, 1, 3]);
+  assert.deepEqual(Array.from(submittedPayload.questionIds), [201, 202, 203]);
+});
