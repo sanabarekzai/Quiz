@@ -620,3 +620,95 @@ test("signed-in students see all attempts in the My History table", async () => 
   assert.match(app.innerHTML, /20 \/ 10 points/);
   assert.match(app.innerHTML, /Response saved/);
 });
+
+test("timed quizzes auto-submit selected responses and allow unanswered questions", async () => {
+  const app = new MockApp();
+  let tick;
+  let payload;
+  const quiz = { id: "science", title: "Science", questionCount: 2 };
+  const fetch = async (url, options = {}) => {
+    if (url === "/api/me") return jsonResponse({ user: { id: 4, username: "timer", displayName: "Timer" } });
+    if (url === "/api/me/records" || url === "/api/me/history") return jsonResponse({ records: [], attempts: [] });
+    if (url === "/api/quizzes") return jsonResponse({ quizzes: [quiz] });
+    if (url === "/api/quizzes/science") {
+      return jsonResponse({ quiz, questions: [
+        { id: 1, prompt: "Timed question one", options: ["A", "B", "C", "D"] },
+        { id: 2, prompt: "Timed question two", options: ["A", "B", "C", "D"] },
+      ] });
+    }
+    if (url === "/api/quizzes/science/submit") {
+      payload = JSON.parse(options.body);
+      return jsonResponse({ score: 0, totalQuestions: 1, percentage: 0, results: [] });
+    }
+    throw new Error(`Unexpected API request: ${url}`);
+  };
+  vm.runInNewContext(appSource, {
+    document: { querySelector: () => app },
+    window: { addEventListener() {} },
+    fetch,
+    HTMLFormElement: MockForm,
+    HTMLInputElement: MockInput,
+    FormData: MockFormData,
+    Element: class MockElement {},
+    setInterval(callback) { tick = callback; return 1; },
+    clearInterval() {},
+    console,
+  });
+  const flush = async () => {
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+  };
+  await flush();
+  app.listeners.get("change")({ target: new MockInput("quizId", "science") });
+  app.listeners.get("submit")({
+    preventDefault() {},
+    target: new MockForm("setup-form", { quizId: "science", timerEnabled: "on" }),
+  });
+  await flush();
+  assert.match(app.innerHTML, /60 seconds per question|60s/);
+  app.listeners.get("change")({ target: new MockInput("answer", "2") });
+  const firstQuestionTick = tick;
+  for (let second = 0; second < 60; second++) firstQuestionTick();
+  for (let second = 0; second < 60; second++) tick();
+  await flush();
+  assert.equal(payload.timedMode, true);
+  assert.deepEqual(Array.from(payload.answers), [2, null]);
+});
+
+test("activity search filters quiz cards by title", async () => {
+  const app = new MockApp();
+  const quizzes = [
+    { id: "science", title: "Science", questionCount: 1 },
+    { id: "history", title: "World History", questionCount: 1 },
+  ];
+  const fetch = async (url) => {
+    if (url === "/api/me") return jsonResponse({ error: "Unauthorized." }, 401);
+    if (url === "/api/quizzes") return jsonResponse({ quizzes });
+    throw new Error(`Unexpected API request: ${url}`);
+  };
+  vm.runInNewContext(appSource, {
+    document: { querySelector: () => app },
+    window: { addEventListener() {} },
+    fetch,
+    HTMLFormElement: MockForm,
+    HTMLInputElement: MockInput,
+    FormData: MockFormData,
+    Element: class MockElement {},
+    console,
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  const search = new MockInput("", "history");
+  search.id = "catalog-search";
+  app.listeners.get("input")({ target: search });
+  assert.match(app.innerHTML, /<span class="category-title">World History<\/span>/);
+  assert.doesNotMatch(app.innerHTML, /<span class="category-title">Science<\/span>/);
+  const clearSearch = new MockInput("", "");
+  clearSearch.id = "catalog-search";
+  app.listeners.get("input")({ target: clearSearch });
+  const category = new MockInput("", "science");
+  category.id = "catalog-category";
+  app.listeners.get("change")({ target: category });
+  assert.match(app.innerHTML, /<span class="category-title">Science<\/span>/);
+  assert.doesNotMatch(app.innerHTML, /<span class="category-title">World History<\/span>/);
+});

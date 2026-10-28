@@ -40,14 +40,20 @@ const STUDY_PERSONALITY_BLEND_MESSAGES = {
   BE: "You’re energized by people and ideas. Give study sessions a goal so they don’t turn into social time.",
 };
 const SALT_ROUNDS = 12;
-const SESSION_SECRET = process.env.SESSION_SECRET;
+const SESSION_SECRET = process.env.NODE_ENV === "production"
+  ? process.env.SESSION_SECRET_PRODUCTION
+  : process.env.SESSION_SECRET;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is required. Connect the Replit PostgreSQL database before starting the app.");
 }
 if (!SESSION_SECRET) {
-  throw new Error("SESSION_SECRET is required so sign-in sessions survive server restarts.");
+  throw new Error(
+    process.env.NODE_ENV === "production"
+      ? "SESSION_SECRET_PRODUCTION is required for production sign-in sessions."
+      : "SESSION_SECRET is required so sign-in sessions survive server restarts.",
+  );
 }
 
 const pool = new Pool({
@@ -624,16 +630,21 @@ function getStudySkillsFeedback(totalScore) {
   }
 }
 
+const TIMED_QUIZ_IDS = new Set(["science", "geography", "history", "mixed", "study_skills"]);
+
 app.post("/api/quizzes/:id/submit", requireAuth, async (req, res, next) => {
   const { id } = req.params;
-  const { answers, questionIds } = req.body || {};
+  const { answers, questionIds, timedMode = false } = req.body || {};
   if (UNAVAILABLE_QUIZ_IDS.has(id)) {
     return res.status(404).json({ error: "Quiz not found." });
   }
 
   if (!Array.isArray(answers) || !Array.isArray(questionIds) ||
       answers.length !== questionIds.length ||
-      !answers.every((answer) => Number.isInteger(answer) && answer >= 0 && answer < 4) ||
+      typeof timedMode !== "boolean" ||
+      (timedMode && !TIMED_QUIZ_IDS.has(id)) ||
+      !answers.every((answer) =>
+        answer === null ? timedMode : Number.isInteger(answer) && answer >= 0 && answer < 4) ||
       !questionIds.every((questionId) => Number.isSafeInteger(questionId) && questionId > 0)) {
     return res.status(400).json({ error: "Answers and question IDs must be matching arrays." });
   }

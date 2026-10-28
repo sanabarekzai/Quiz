@@ -20,6 +20,12 @@ const state = {
   quizzesStatus: "loading",
   quizzes: [],
   selectedQuizId: "",
+  catalogSearch: "",
+  catalogCategory: "all",
+  timerEnabled: false,
+  timerRemaining: 60,
+  timerInterval: null,
+  timerNotice: "",
   playerName: "",
   myRecords: [],
   myHistory: [],
@@ -60,6 +66,9 @@ const state = {
   matcherError: "",
   matcherLoading: false,
 };
+
+const TIMED_QUIZ_IDS = new Set(["science", "geography", "history", "mixed", "study_skills"]);
+const SECONDS_PER_QUESTION = 60;
 
 const STUDY_PERSONALITY_PROFILES = {
   S: {
@@ -784,6 +793,11 @@ function renderMyHistory() {
 }
 
 function renderSetup() {
+  const search = state.catalogSearch.trim().toLowerCase();
+  const visibleQuizzes = state.quizzes.filter((quiz) =>
+    (!search || String(quiz.title || "").toLowerCase().includes(search)) &&
+    (state.catalogCategory === "all" || state.catalogCategory === quiz.id));
+  const selectedCanBeTimed = TIMED_QUIZ_IDS.has(state.selectedQuizId);
   app.innerHTML = shell(`
     <main class="setup-layout reveal">
       <section class="intro-panel" aria-labelledby="intro-title">
@@ -808,6 +822,13 @@ function renderSetup() {
           <h2 id="setup-title">Explore the library</h2>
           <p>Pick an activity that meets you where you are today.</p>
         </div>
+        <div class="catalog-filters">
+          <label>Search titles<input id="catalog-search" type="search" value="${escapeHTML(state.catalogSearch)}" placeholder="Search activities"></label>
+          <label>Category<select id="catalog-category">
+            <option value="all">All categories</option>
+            ${state.quizzes.map((quiz) => `<option value="${escapeHTML(quiz.id)}" ${state.catalogCategory === quiz.id ? "selected" : ""}>${escapeHTML(quiz.title)}</option>`).join("")}
+          </select></label>
+        </div>
         ${renderMyRecords()}
         ${renderMyHistory()}
         ${renderCommunityResults()}
@@ -826,13 +847,13 @@ function renderSetup() {
               <span class="notice-symbol" aria-hidden="true">!</span>
               <div><strong>Topics haven\u2019t arrived yet.</strong><p>${escapeHTML(state.setupError || "We couldn\u2019t load the quiz categories.")}</p><button class="text-button" type="button" data-action="retry-quizzes">Try again</button></div>
             </div>` :
-          state.quizzes.length === 0 ? `
+          visibleQuizzes.length === 0 ? `
             <div class="empty-state" role="status"><strong>No quizzes to pick from just yet.</strong>There aren\u2019t any available topics right now. Check back in a little while.</div>` :
           `<form class="setup-form" id="setup-form">
             <fieldset class="form-section">
               <legend class="section-heading">All study activities <span class="section-hint">Select one to begin</span></legend>
               <div class="category-grid">
-                ${state.quizzes.map((quiz, index) => {
+                ${visibleQuizzes.map((quiz, index) => {
                   const selected = state.selectedQuizId === quiz.id;
                   const symbol = String(index + 1).padStart(2, "0");
                   const quizId = `quiz-${index}`;
@@ -855,8 +876,12 @@ function renderSetup() {
                 }).join("")}
               </div>
             </fieldset>
+            <label class="timer-toggle" ${selectedCanBeTimed ? "" : 'data-disabled="true"'}>
+              <input type="checkbox" name="timerEnabled" ${state.timerEnabled && selectedCanBeTimed ? "checked" : ""} ${selectedCanBeTimed ? "" : "disabled"}>
+              <span><strong>Enable Timer</strong><small>60 seconds per question${selectedCanBeTimed ? "" : " · available on scored quizzes"}</small></span>
+            </label>
             <div class="form-actions">
-              <button class="primary-button start-button" type="submit" ${state.starting || !state.selectedQuizId ? "disabled" : ""}>
+              <button class="primary-button start-button" type="submit" ${state.starting || !visibleQuizzes.some((quiz) => quiz.id === state.selectedQuizId) ? "disabled" : ""}>
                 <span>${state.starting ? "Loading activity..." : "Start Activity"}</span><span class="button-arrow" aria-hidden="true">${state.starting ? "\u2026" : "\u2192"}</span>
               </button>
               <p class="form-footnote">Your progress saves to your account when you’re signed in.</p>
@@ -906,6 +931,14 @@ function renderQuiz() {
           <span class="meta-chip">${escapeHTML(state.currentQuiz?.title || state.selectedQuizId)}</span>
         </div>
       </div>
+      ${state.timerEnabled ? `
+        <div class="quiz-timer" role="timer" aria-label="Time remaining for this question">
+          <div class="quiz-timer-label"><span>Time for this question</span><strong id="timer-label">${state.timerRemaining}s</strong></div>
+          <div class="timer-track" role="progressbar" aria-valuemin="0" aria-valuemax="${SECONDS_PER_QUESTION}" aria-valuenow="${state.timerRemaining}" aria-label="Time remaining">
+            <div class="timer-fill" id="timer-fill" style="width:${Math.round(state.timerRemaining / SECONDS_PER_QUESTION * 100)}%"></div>
+          </div>
+          ${state.timerNotice ? `<p class="timer-notice" role="status">${escapeHTML(state.timerNotice)}</p>` : ""}
+        </div>` : ""}
       <div class="progress-wrap" aria-label="Quiz progress">
         <div class="progress-labels"><span>Question ${current} of ${total}</span><span>${percent}% complete</span></div>
         <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${Math.min(state.currentQuestionIndex + 1, total)}" aria-label="Questions answered">
@@ -1350,9 +1383,13 @@ async function startQuiz(form) {
     state.currentQuestionIndex = 0;
     state.answers = Array(result.questions.length).fill(null);
     state.results = null;
+    state.timerEnabled = Boolean(formData.get("timerEnabled")) && TIMED_QUIZ_IDS.has(quizId);
+    state.timerRemaining = SECONDS_PER_QUESTION;
+    state.timerNotice = "";
     state.screen = "quiz";
     state.starting = false;
     render();
+    startQuestionTimer();
   } catch (error) {
     state.setupError = error.message || "We couldn\u2019t load the quiz. Please try again.";
     state.starting = false;
@@ -1370,13 +1407,14 @@ async function submitQuiz() {
   }
   
   // Check all questions are answered
-  if (state.answers.some(a => a === null)) {
+  if (state.answers.some(a => a === null) && !state.timerEnabled) {
     state.answerError = "Please answer all questions before submitting.";
     render();
     return;
   }
   
   state.submitting = true;
+  stopQuestionTimer();
   state.answerError = "";
   render();
   
@@ -1386,6 +1424,7 @@ async function submitQuiz() {
       body: JSON.stringify({
         answers: state.answers,
         questionIds: state.questions.map((question) => question.id),
+        timedMode: state.timerEnabled,
       }),
     });
     
@@ -1407,22 +1446,65 @@ async function submitQuiz() {
   }
 }
 
+function stopQuestionTimer() {
+  if (state.timerInterval !== null) clearInterval(state.timerInterval);
+  state.timerInterval = null;
+}
+
+function updateQuestionTimerDisplay() {
+  const label = app.querySelector("#timer-label");
+  const fill = app.querySelector("#timer-fill");
+  const track = app.querySelector(".timer-track");
+  if (label) label.textContent = `${state.timerRemaining}s`;
+  if (fill) fill.style.width = `${Math.round(state.timerRemaining / SECONDS_PER_QUESTION * 100)}%`;
+  if (track) track.setAttribute("aria-valuenow", String(state.timerRemaining));
+}
+
+function startQuestionTimer() {
+  stopQuestionTimer();
+  if (!state.timerEnabled || state.screen !== "quiz") return;
+  state.timerRemaining = SECONDS_PER_QUESTION;
+  updateQuestionTimerDisplay();
+  state.timerInterval = setInterval(() => {
+    state.timerRemaining = Math.max(0, state.timerRemaining - 1);
+    updateQuestionTimerDisplay();
+    if (state.timerRemaining > 0) return;
+    stopQuestionTimer();
+    const hasAnswer = state.answers[state.currentQuestionIndex] !== null;
+    state.timerNotice = hasAnswer
+      ? "Time is up. Your selected answer is saved."
+      : "Time is up. This question will be counted as unanswered.";
+    if (state.currentQuestionIndex >= state.questions.length - 1) {
+      submitQuiz();
+      return;
+    }
+    state.currentQuestionIndex++;
+    render();
+    startQuestionTimer();
+  }, 1000);
+}
+
 function goToNextQuestion() {
   if (state.currentQuestionIndex < state.questions.length - 1) {
     state.currentQuestionIndex++;
+    state.timerNotice = "";
     render();
+    startQuestionTimer();
   }
 }
 
 function goToPrevQuestion() {
   if (state.currentQuestionIndex > 0) {
     state.currentQuestionIndex--;
+    state.timerNotice = "";
     render();
+    startQuestionTimer();
   }
 }
 
 function selectAnswer(index) {
   state.answers[state.currentQuestionIndex] = index;
+  state.timerNotice = "";
   render();
 }
 
@@ -1433,9 +1515,11 @@ function retryQuiz() {
   state.results = null;
   state.answerError = "";
   render();
+  startQuestionTimer();
 }
 
 function returnToSetup() {
+  stopQuestionTimer();
   state.screen = "setup";
   state.selectedQuizId = "";
   state.currentQuiz = null;
@@ -1451,6 +1535,19 @@ function returnToSetup() {
   render();
 }
 
+app.addEventListener("input", (event) => {
+  const target = event.target;
+  if (target.id !== "catalog-search") return;
+  const start = target.selectionStart;
+  state.catalogSearch = target.value;
+  renderSetup();
+  const search = app.querySelector("#catalog-search");
+  if (search) {
+    search.focus();
+    if (typeof start === "number") search.setSelectionRange(start, start);
+  }
+});
+
 app.addEventListener("change", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement) && target.tagName !== "SELECT") return;
@@ -1464,9 +1561,20 @@ app.addEventListener("change", (event) => {
     loadCommunityResults();
     return;
   }
+  if (target.id === "catalog-category") {
+    state.catalogCategory = target.value;
+    renderSetup();
+    return;
+  }
+  if (target.name === "timerEnabled") {
+    state.timerEnabled = target.checked;
+    renderSetup();
+    return;
+  }
   
   if (target.name === "quizId") {
     state.selectedQuizId = target.value;
+    if (!TIMED_QUIZ_IDS.has(target.value)) state.timerEnabled = false;
     app.querySelectorAll(".category-choice").forEach((choice) => {
       const radio = choice.querySelector('input[name="quizId"]');
       choice.dataset.selected = String(radio?.checked || false);
