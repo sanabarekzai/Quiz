@@ -1059,27 +1059,37 @@ app.get("/api/community-results", requireAuth, async (req, res, next) => {
     const categoryId = typeof req.query.category === "string" ? req.query.category : null;
     const params = [categoryId];
     const result = await pool.query(
-      `SELECT a.id, a.category_id AS "categoryId", c.title, u.username,
-              a.score, a.total_questions AS "totalQuestions", a.percentage,
-              a.completed_at AS "completedAt",
-              CASE WHEN a.category_id = 'club_carnival' THEN shared.responses
-                   ELSE '[]'::jsonb END AS "sharedResponses",
-              a.result
-       FROM quiz_attempts a
-       JOIN users u ON u.id = a.user_id
-       JOIN quiz_categories c ON c.id = a.category_id
-       LEFT JOIN LATERAL (
-         SELECT jsonb_agg(
-           jsonb_build_object('question', q.prompt, 'answer', q.options ->> ((answer.value->>'selectedIndex')::int))
-           ORDER BY (answer.value->>'questionId')::int
-         ) AS responses
-         FROM jsonb_array_elements(a.answers) AS answer(value)
-         JOIN quiz_questions q ON q.id = (answer.value->>'questionId')::int
-         WHERE a.category_id = 'club_carnival'
-       ) shared ON TRUE
-       WHERE ($1::text IS NULL OR a.category_id = $1)
-         AND a.category_id <> 'student_wellness'
-       ORDER BY a.completed_at DESC, a.id DESC
+      `SELECT * FROM (
+         SELECT a.id::bigint AS id, a.category_id AS "categoryId", c.title, u.username,
+                a.score, a.total_questions AS "totalQuestions", a.percentage,
+                a.completed_at AS "completedAt",
+                CASE WHEN a.category_id = 'club_carnival' THEN shared.responses
+                     ELSE '[]'::jsonb END AS "sharedResponses",
+                a.result
+         FROM quiz_attempts a
+         JOIN users u ON u.id = a.user_id
+         JOIN quiz_categories c ON c.id = a.category_id
+         LEFT JOIN LATERAL (
+           SELECT jsonb_agg(
+             jsonb_build_object('question', q.prompt, 'answer', q.options ->> ((answer.value->>'selectedIndex')::int))
+             ORDER BY (answer.value->>'questionId')::int
+           ) AS responses
+           FROM jsonb_array_elements(a.answers) AS answer(value)
+           JOIN quiz_questions q ON q.id = (answer.value->>'questionId')::int
+           WHERE a.category_id = 'club_carnival'
+         ) shared ON TRUE
+         WHERE ($1::text IS NULL OR a.category_id = $1)
+           AND a.category_id <> 'student_wellness'
+         UNION ALL
+         SELECT mr.id::bigint, 'study_tool_matcher'::text, 'Which study tools fit you?'::text,
+                u.username, NULL::integer, 12::integer, NULL::numeric, mr.created_at,
+                '[]'::jsonb,
+                jsonb_build_object('ranking', mr.ranking, 'groupScores', mr.group_scores)
+         FROM matcher_results mr
+         JOIN users u ON u.id = mr.user_id
+         WHERE ($1::text IS NULL OR $1 = 'study_tool_matcher')
+       ) community
+       ORDER BY "completedAt" DESC, id DESC
        LIMIT 100`,
       params,
     );
@@ -1103,6 +1113,20 @@ app.get("/api/community-results", requireAuth, async (req, res, next) => {
           maxScore: typeof resultData.maxScore === "number" ? resultData.maxScore : null,
           profileSummary: typeof resultData.profileSummary === "string" ? resultData.profileSummary : null,
           primaryProfiles: Array.isArray(resultData.primaryProfiles) ? resultData.primaryProfiles : [],
+          matcherRanking: Array.isArray(resultData.ranking)
+            ? resultData.ranking.map((tool) => ({
+                rank: tool.rank,
+                name: tool.name,
+                groupName: tool.groupName,
+                matchPercent: tool.matchPercent,
+              }))
+            : [],
+          matcherGroups: Array.isArray(resultData.groupScores)
+            ? resultData.groupScores.map((group) => ({
+                name: group.name,
+                matchPercent: group.matchPercent,
+              }))
+            : [],
         },
       };
     });

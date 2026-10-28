@@ -3,8 +3,8 @@ name: Study Tool Matcher
 description: Product boundaries and privacy rules for the study-tool matching survey.
 ---
 
-The Study Tool Matcher is a separate, ungraded survey, not a scored quiz. Keep its questions, choices, and tool descriptions in JSON; never send choice-point mappings to the browser. Save results in the dedicated matcher-results table and expose only the signed-in user's history. Preserve existing quiz and leaderboard behavior.
+The Study Tool Matcher is an ungraded survey shown in the same activity list as other surveys. Include its match rankings in the shared community results feed, but never expose answer selections or choice-point mappings. Keep questions, choices, and tool descriptions in JSON and save results in the dedicated matcher-results table.
 
-**Why:** the user supplied an explicit product brief that separates the matcher from required quizzes and requires private, persistent rankings.
+**Why:** the user clarified that the matcher belongs with the other surveys and its results should be shared with the community.
 
-**How to apply:** extend the matcher data/API/results flow for changes; do not fold it into quiz questions, attempts, or leaderboards.
+**How to apply:** treat the matcher as a normal activity in the UI and community feed while retaining its specialized data model and ungraded scoring.

@@ -29,17 +29,36 @@ test("signed-in students see newest community outcomes and admins see the questi
     { id: "club_carnival", title: "Club Carnival", questionCount: 5 },
     { id: "student_wellness", title: "Student Wellness Survey", questionCount: 12 },
   ];
-  const communityEntries = [{
-    id: 4,
-    categoryId: "club_carnival",
-    title: "Club Carnival",
-    username: "student-example",
-    score: null,
-    totalQuestions: 5,
-    completedAt: "2026-10-27T18:00:00.000Z",
-    outcome: { feedback: "Thanks for sharing your thoughts." },
-    sharedResponses: [{ question: "Which activity?", answer: "Art" }],
-  }];
+  const communityEntries = [
+    {
+      id: 4,
+      categoryId: "club_carnival",
+      title: "Club Carnival",
+      username: "student-example",
+      score: null,
+      totalQuestions: 5,
+      completedAt: "2026-10-27T18:00:00.000Z",
+      outcome: { feedback: "Thanks for sharing your thoughts." },
+      sharedResponses: [{ question: "Which activity?", answer: "Art" }],
+    },
+    {
+      id: 5,
+      categoryId: "study_tool_matcher",
+      title: "Which study tools fit you?",
+      username: "matcher-student",
+      score: null,
+      totalQuestions: 12,
+      completedAt: "2026-10-27T18:05:00.000Z",
+      outcome: {
+        matcherRanking: [
+          { rank: 1, name: "Notion", groupName: "Planning", matchPercent: 90 },
+          { rank: 2, name: "Quizlet", groupName: "Practice", matchPercent: 82 },
+        ],
+        matcherGroups: [{ name: "Planning", matchPercent: 84 }],
+      },
+      sharedResponses: [],
+    },
+  ];
   const fetch = async (url) => {
     if (url === "/api/me") return jsonResponse({ user: { id: 9, username: "admin-example", displayName: "Admin Example", role: "admin" } });
     if (url === "/api/me/records") return jsonResponse({ records: [] });
@@ -78,6 +97,14 @@ test("signed-in students see newest community outcomes and admins see the questi
   assert.match(app.innerHTML, /student-example/);
   assert.match(app.innerHTML, /Unscored/);
   assert.match(app.innerHTML, /Which activity\?/);
+  assert.match(app.innerHTML, /Which study tools fit you\?/);
+  assert.match(app.innerHTML, /STUDY TOOLS/);
+  assert.match(app.innerHTML, /Study tool matches/);
+  assert.match(app.innerHTML, /Notion/);
+  assert.match(app.innerHTML, /90% match/);
+  assert.match(app.innerHTML, /Best-fit groups/);
+  assert.match(app.innerHTML, /Planning/);
+  assert.doesNotMatch(app.innerHTML, /Separate survey/);
   assert.match(app.innerHTML, /Recent results appear first; this is not a competition/i);
 
   app.listeners.get("click")({ target: new MockElement("open-admin") });

@@ -189,6 +189,7 @@ async function registerUser(form) {
     state.user = result.user;
     state.authModal = "none";
     state.authLoading = false;
+    state.matcherError = "";
     state.registerData = { username: "", password: "", firstName: "", lastName: "", displayName: "" };
     await Promise.all([loadMyRecords(), loadMyHistory(), loadCommunityResults()]);
     render();
@@ -221,6 +222,7 @@ async function loginUser(form) {
     state.user = result.user;
     state.authModal = "none";
     state.authLoading = false;
+    state.matcherError = "";
     state.loginData = { username: "", password: "" };
     await Promise.all([loadMyRecords(), loadMyHistory(), loadCommunityResults()]);
     render();
@@ -456,6 +458,16 @@ function renderCommunityResults() {
           `<li><span>${escapeHTML(response.question)}</span><b>${escapeHTML(response.answer)}</b></li>`
         ).join("")}</ul></div>`
         : "";
+      const matcherResults = Array.isArray(outcome.matcherRanking) && outcome.matcherRanking.length
+        ? `<div class="community-response-list"><strong>Study tool matches</strong><ul>${outcome.matcherRanking.map((tool) =>
+          `<li><span>${escapeHTML(tool.name)}${tool.groupName ? ` · ${escapeHTML(tool.groupName)}` : ""}</span><b>${escapeHTML(tool.matchPercent)}% match</b></li>`
+        ).join("")}</ul></div>`
+        : "";
+      const matcherGroupResults = Array.isArray(outcome.matcherGroups) && outcome.matcherGroups.length
+        ? `<div class="community-response-list"><strong>Best-fit groups</strong><ul>${outcome.matcherGroups.map((group) =>
+          `<li><span>${escapeHTML(group.name)}</span><b>${escapeHTML(group.matchPercent)}%</b></li>`
+        ).join("")}</ul></div>`
+        : "";
       const date = new Date(entry.completedAt);
       const dateLabel = Number.isNaN(date.getTime()) ? "Date unavailable" : date.toLocaleString();
       return `<article class="community-result">
@@ -464,6 +476,8 @@ function renderCommunityResults() {
         <p class="community-result-score">${escapeHTML(score)}</p>
         ${details.map((detail) => `<p class="community-result-feedback">${escapeHTML(detail)}</p>`).join("")}
         ${responses}
+        ${matcherResults}
+        ${matcherGroupResults}
       </article>`;
     }).join("")}</div>`;
   }
@@ -497,7 +511,7 @@ function shell(content, screenName = "setup") {
   const homeNavigation = screenName === "setup" || screenName === "admin" ? `
     <nav class="site-nav" aria-label="Main navigation">
       <a href="#quiz-library">Explore</a>
-      <a href="#matcher-promo">Study tools</a>
+      <a href="#quiz-library">Study tools</a>
       ${state.user ? '<a href="#my-history">My History</a>' : ""}
       ${state.user ? '<a href="#community-results">Community results</a>' : ""}
       ${state.user?.role === "admin" ? '<button class="site-nav-button" type="button" data-action="open-admin">Admin tools</button>' : ""}
@@ -779,7 +793,7 @@ function renderSetup() {
           <p>Build confidence, find your rhythm, and make your next study session count.</p>
           <div class="hero-actions">
             <a class="primary-button hero-primary" href="#quiz-library">Explore quizzes <span aria-hidden="true">↘</span></a>
-            <a class="hero-text-link" href="#matcher-promo">Find a tool that fits <span aria-hidden="true">→</span></a>
+            <a class="hero-text-link" href="#quiz-library">Find a tool that fits <span aria-hidden="true">→</span></a>
           </div>
         </div>
         <div class="hero-visual">
@@ -797,10 +811,10 @@ function renderSetup() {
         ${renderMyRecords()}
         ${renderMyHistory()}
         ${renderCommunityResults()}
-        ${state.setupError ? `
+        ${(state.setupError || state.matcherError) ? `
           <div class="notice" role="alert">
             <span class="notice-symbol" aria-hidden="true">!</span>
-            <div><strong>We couldn\u2019t start your round.</strong><p>${escapeHTML(state.setupError)}</p></div>
+            <div><strong>We couldn\u2019t start your activity.</strong><p>${escapeHTML(state.setupError || state.matcherError)}</p></div>
           </div>` : ""}
         ${state.quizzesStatus === "loading" ? `
           <div aria-label="Loading quiz categories">
@@ -826,7 +840,8 @@ function renderSetup() {
                     quiz.id === "study_personality" ? "STUDY HABITS" :
                     quiz.id === "club_carnival" ? "COMMUNITY" :
                     quiz.id === "student_wellness" ? "WELLBEING" :
-                    quiz.id === "study_skills" ? "PRACTICE" : "QUIZ";
+                    quiz.id === "study_skills" ? "PRACTICE" :
+                    quiz.id === "study_tool_matcher" ? "STUDY TOOLS" : "QUIZ";
                   return `<label class="category-choice" data-selected="${selected}" for="${quizId}">
                     <input id="${quizId}" type="radio" name="quizId" value="${escapeHTML(quiz.id)}" ${selected ? "checked" : ""} required>
                     <span class="category-symbol" aria-hidden="true">${symbol}</span>
@@ -842,22 +857,11 @@ function renderSetup() {
             </fieldset>
             <div class="form-actions">
               <button class="primary-button start-button" type="submit" ${state.starting || !state.selectedQuizId ? "disabled" : ""}>
-                <span>${state.starting ? "Loading quiz..." : "Start Quiz"}</span><span class="button-arrow" aria-hidden="true">${state.starting ? "\u2026" : "\u2192"}</span>
+                <span>${state.starting ? "Loading activity..." : "Start Activity"}</span><span class="button-arrow" aria-hidden="true">${state.starting ? "\u2026" : "\u2192"}</span>
               </button>
               <p class="form-footnote">Your progress saves to your account when you’re signed in.</p>
             </div>
           </form>`}
-        <section class="matcher-promo" id="matcher-promo">
-          <div>
-            <div class="eyebrow"><span class="eyebrow-line"></span> Separate survey</div>
-            <h3>Which study tools fit you?</h3>
-            <p>Find tools that match how you plan, focus, and learn. Sign in to save your results.</p>
-          </div>
-          <button class="secondary-button" type="button" data-action="start-matcher" ${state.matcherLoading ? "disabled" : ""}>
-            ${state.matcherLoading ? "Loading..." : "Start Study Tool Matcher"}
-          </button>
-          ${state.matcherError ? `<p class="matcher-error" role="alert">${escapeHTML(state.matcherError)}</p>` : ""}
-        </section>
       </section>
     </main>`, "setup");
 }
@@ -1265,6 +1269,7 @@ async function submitMatcher() {
     state.matcherHistory = [result, ...state.matcherHistory];
     state.matcherLoading = false;
     state.screen = "matcher-results";
+    await loadCommunityResults();
     render();
   } catch (error) {
     state.matcherLoading = false;
@@ -1289,7 +1294,15 @@ async function loadQuizzes() {
   try {
     const result = await api("/api/quizzes");
     if (!result || !Array.isArray(result.quizzes)) throw new Error("The quiz list came back in an unexpected format.");
-    state.quizzes = result.quizzes;
+    state.quizzes = [
+      ...result.quizzes.filter((quiz) => quiz.id !== "study_tool_matcher"),
+      {
+        id: "study_tool_matcher",
+        title: "Which study tools fit you?",
+        description: "Find tools that match how you plan, focus, and learn.",
+        questionCount: 12,
+      },
+    ];
     state.quizzesStatus = "loaded";
     if (!state.quizzes.some((quiz) => quiz.id === state.selectedQuizId)) {
       state.selectedQuizId = state.quizzes[0]?.id || "";
@@ -1311,6 +1324,12 @@ async function startQuiz(form) {
   if (!quizId) {
     state.setupError = "Choose a quiz before starting.";
     render();
+    return;
+  }
+
+  if (quizId === "study_tool_matcher") {
+    state.selectedQuizId = quizId;
+    await startMatcher();
     return;
   }
 
