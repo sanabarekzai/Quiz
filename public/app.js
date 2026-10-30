@@ -822,13 +822,6 @@ function renderSetup() {
           <h2 id="setup-title">Explore the library</h2>
           <p>Pick an activity that meets you where you are today.</p>
         </div>
-        <div class="catalog-filters">
-          <label>Search titles<input id="catalog-search" type="search" value="${escapeHTML(state.catalogSearch)}" placeholder="Search activities"></label>
-          <label>Category<select id="catalog-category">
-            <option value="all">All categories</option>
-            ${state.quizzes.map((quiz) => `<option value="${escapeHTML(quiz.id)}" ${state.catalogCategory === quiz.id ? "selected" : ""}>${escapeHTML(quiz.title)}</option>`).join("")}
-          </select></label>
-        </div>
         ${renderMyRecords()}
         ${renderMyHistory()}
         ${renderCommunityResults()}
@@ -837,6 +830,13 @@ function renderSetup() {
             <span class="notice-symbol" aria-hidden="true">!</span>
             <div><strong>We couldn\u2019t start your activity.</strong><p>${escapeHTML(state.setupError || state.matcherError)}</p></div>
           </div>` : ""}
+        <div class="catalog-filters">
+          <label>Search titles<input id="catalog-search" type="search" value="${escapeHTML(state.catalogSearch)}" placeholder="Search activities"></label>
+          <label>Category<select id="catalog-category">
+            <option value="all">All categories</option>
+            ${state.quizzes.map((quiz) => `<option value="${escapeHTML(quiz.id)}" ${state.catalogCategory === quiz.id ? "selected" : ""}>${escapeHTML(quiz.title)}</option>`).join("")}
+          </select></label>
+        </div>
         ${state.quizzesStatus === "loading" ? `
           <div aria-label="Loading quiz categories">
             <div class="skeleton loading-line"></div>

@@ -698,6 +698,11 @@ test("activity search filters quiz cards by title", async () => {
   });
   await new Promise((resolve) => setImmediate(resolve));
   await new Promise((resolve) => setImmediate(resolve));
+  const filtersPosition = app.innerHTML.indexOf('class="catalog-filters"');
+  const activityFormPosition = app.innerHTML.indexOf('class="setup-form"');
+  const activityGridPosition = app.innerHTML.indexOf('class="category-grid"');
+  assert.ok(filtersPosition >= 0 && filtersPosition < activityFormPosition);
+  assert.ok(activityFormPosition < activityGridPosition);
   const search = new MockInput("", "history");
   search.id = "catalog-search";
   app.listeners.get("input")({ target: search });
